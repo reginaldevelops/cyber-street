@@ -10,7 +10,7 @@ const SPRINT_SPEED = 8.8
 const ACCEL = 14
 const DECEL = 11
 
-const ISO_FRUSTUM = 22 // orthografische zoom
+const ISO_FRUSTUM = 30 // orthografische zoom — iets wijder voor het plein
 const ISO_CAM_OFFSET = new THREE.Vector3(26, 26, 26)
 const ISO_FOLLOW = 9
 const ISO_FORWARD = new THREE.Vector3(-1, 0, -1).normalize()
@@ -20,12 +20,10 @@ const FIRE_INTERVAL = 0.115
 const GUN_RANGE = 90
 const AIM_ASSIST_ANGLE = 0.055
 
-const STREET_LENGTH = 72
-const ROAD_WIDTH = 10
-const SIDEWALK_W = 2.2
-const HALF_ROAD = ROAD_WIDTH / 2
-const PLAYER_LIMIT_X = HALF_ROAD + SIDEWALK_W - 0.6
-const PLAYER_LIMIT_Z = STREET_LENGTH / 2 - 1.5
+const PLAZA_SIZE = 40
+const PLAZA_HALF = PLAZA_SIZE / 2
+const PLAYER_LIMIT_X = PLAZA_HALF - 2.5
+const PLAYER_LIMIT_Z = PLAZA_HALF - 2.5
 
 const ENEMY_COUNT = 5
 const ENEMY_HP = 3
@@ -75,6 +73,8 @@ function dampAngle(current: number, target: number, lambda: number, dt: number) 
 const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
 const _mouseNdc = new THREE.Vector2()
 const _aimHit = new THREE.Vector3()
+
+type ShopKind = 'bar' | 'weapons' | 'armor' | 'bank' | 'inn' | 'tech' | 'clinic' | 'general'
 
 export class Game {
   private container: HTMLElement
@@ -184,11 +184,11 @@ export class Game {
 
   private buildWorld() {
     this.scene.background = new THREE.Color(0x141024)
-    this.scene.fog = new THREE.FogExp2(0x221636, 0.014)
+    this.scene.fog = new THREE.FogExp2(0x221636, 0.011)
 
-    this.scene.add(new THREE.AmbientLight(0x665577, 0.42))
+    this.scene.add(new THREE.AmbientLight(0x665577, 0.45))
 
-    const hemi = new THREE.HemisphereLight(0x8aadff, 0x281018, 0.82)
+    const hemi = new THREE.HemisphereLight(0x8aadff, 0x281018, 0.85)
     this.scene.add(hemi)
 
     const moon = new THREE.DirectionalLight(0xb8c4ff, 0.78)
@@ -196,147 +196,25 @@ export class Game {
     moon.castShadow = true
     moon.shadow.mapSize.set(2048, 2048)
     moon.shadow.camera.near = 1
-    moon.shadow.camera.far = 90
-    moon.shadow.camera.left = -34
-    moon.shadow.camera.right = 34
-    moon.shadow.camera.top = 34
-    moon.shadow.camera.bottom = -34
+    moon.shadow.camera.far = 100
+    moon.shadow.camera.left = -42
+    moon.shadow.camera.right = 42
+    moon.shadow.camera.top = 42
+    moon.shadow.camera.bottom = -42
     this.scene.add(moon)
 
     const fill = new THREE.DirectionalLight(0xff88cc, 0.22)
     fill.position.set(8, 10, 14)
     this.scene.add(fill)
 
-    // Natte weg — iets lichter zodat neon reflecties zichtbaar blijven
-    const roadMat = new THREE.MeshStandardMaterial({
-      color: 0x18141f,
-      roughness: 0.38,
-      metalness: 0.42,
-    })
-    const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_WIDTH, STREET_LENGTH), roadMat)
-    road.rotation.x = -Math.PI / 2
-    road.receiveShadow = true
-    this.scene.add(road)
-    this.worldColliders.push(road)
+    this.buildPlazaFloor()
+    this.buildCourtyardShops()
+    this.buildMarketStalls()
+    this.buildBarPatio()
+    this.buildCentralFountain()
+    this.buildCourtyardProps()
+    this.buildCourtyardLighting()
 
-    // Middenstrepen
-    const lineMat = new THREE.MeshStandardMaterial({
-      color: NEON_PINK,
-      emissive: NEON_PINK,
-      emissiveIntensity: 1.4,
-    })
-    for (let z = -STREET_LENGTH / 2 + 2; z < STREET_LENGTH / 2; z += 4) {
-      const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 1.8), lineMat)
-      stripe.rotation.x = -Math.PI / 2
-      stripe.position.set(0, 0.02, z)
-      this.scene.add(stripe)
-    }
-
-    // Stoepen met neon-stoepranden
-    const walkMat = new THREE.MeshStandardMaterial({
-      color: 0x221c2a,
-      roughness: 0.55,
-      metalness: 0.22,
-    })
-    for (const side of [-1, 1]) {
-      const walk = new THREE.Mesh(
-        new THREE.BoxGeometry(SIDEWALK_W, 0.14, STREET_LENGTH),
-        walkMat
-      )
-      walk.position.set(side * (HALF_ROAD + SIDEWALK_W / 2), 0.07, 0)
-      walk.receiveShadow = true
-      this.scene.add(walk)
-
-      const curbColor = side < 0 ? NEON_CYAN : NEON_PINK
-      const curbMat = new THREE.MeshStandardMaterial({
-        color: curbColor,
-        emissive: curbColor,
-        emissiveIntensity: 2.4,
-      })
-      const curb = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, STREET_LENGTH), curbMat)
-      curb.position.set(side * HALF_ROAD, 0.14, 0)
-      this.scene.add(curb)
-      this.flickerMats.push({ mat: curbMat, base: 2.4, t: Math.random() * 5 })
-    }
-
-    // Gebouwen — variatie per blok
-    const buildingX = HALF_ROAD + SIDEWALK_W + 3
-    const count = 8
-    for (let i = 0; i < count; i++) {
-      const z = THREE.MathUtils.lerp(
-        -STREET_LENGTH / 2 + 4,
-        STREET_LENGTH / 2 - 4,
-        i / (count - 1)
-      )
-      this.addDetailedBuilding(-buildingX, z, -1, i)
-      this.addDetailedBuilding(buildingX, z, 1, i + 17)
-    }
-
-    this.addStreetProps()
-
-    const glowTex = this.makeGlowTexture()
-
-    // Straatverlichting (neon points)
-    const lights: [number, number, number][] = [
-      [-HALF_ROAD - 1, 3.6, -12],
-      [HALF_ROAD + 1, 3.6, 8],
-      [-HALF_ROAD - 1, 3.6, 20],
-      [HALF_ROAD + 1, 3.6, -26],
-    ]
-    lights.forEach(([x, y, z], i) => {
-      const color = i % 2 ? NEON_PINK : NEON_CYAN
-      const light = new THREE.PointLight(color, 20, 24, 1.8)
-      light.position.set(x, y, z)
-      this.scene.add(light)
-
-      const glow = new THREE.Mesh(
-        new THREE.PlaneGeometry(3.4, 9),
-        new THREE.MeshBasicMaterial({
-          color,
-          map: glowTex,
-          transparent: true,
-          opacity: 0.16,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        })
-      )
-      glow.rotation.x = -Math.PI / 2
-      glow.position.set(x * 0.82, 0.03, z)
-      this.scene.add(glow)
-    })
-
-    // Zachte neon "zon" aan het einde van de straat
-    const sun = new THREE.Mesh(
-      new THREE.PlaneGeometry(72, 72),
-      new THREE.MeshBasicMaterial({
-        color: 0xff3d7e,
-        map: glowTex,
-        transparent: true,
-        opacity: 0.75,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        fog: false,
-      })
-    )
-    sun.position.set(0, 10, -STREET_LENGTH / 2 - 36)
-    this.scene.add(sun)
-
-    // Skyline-silhouetten in de verte
-    const skyMat = new THREE.MeshBasicMaterial({ color: 0x0a0616 })
-    for (let i = 0; i < 14; i++) {
-      const w = 4 + Math.random() * 6
-      const h = 10 + Math.random() * 22
-      const tower = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4), skyMat)
-      const side = i % 2 ? 1 : -1
-      tower.position.set(
-        side * (12 + Math.random() * 20),
-        h / 2,
-        -STREET_LENGTH / 2 - 14 - Math.random() * 22
-      )
-      this.scene.add(tower)
-    }
-
-    // Draaiende hologram-ring boven de straat
     this.holoRing = new THREE.Group()
     const ringMat = new THREE.MeshBasicMaterial({
       color: NEON_CYAN,
@@ -351,224 +229,472 @@ export class Game {
     ;(ring2.material as THREE.MeshBasicMaterial).color.set(NEON_PINK)
     ring2.rotation.x = Math.PI / 3
     this.holoRing.add(ring1, ring2)
-    this.holoRing.position.set(0, 8.5, -18)
+    this.holoRing.position.set(0, 7.5, 0)
     this.scene.add(this.holoRing)
 
     this.rain = this.makeRain()
     this.scene.add(this.rain)
   }
 
-  private addDetailedBuilding(x: number, z: number, side: number, seed: number) {
-    const rng = (n: number) => {
-      const v = Math.sin(seed * 127.1 + n * 311.7) * 43758.5453
-      return v - Math.floor(v)
-    }
-
-    const variant = seed % 4
-    const height = 5.2 + (seed % 5) * 1.55 + (variant === 3 ? 2.2 : 0)
-    const width = 5.2 + (variant === 1 ? 1.4 : 0) + rng(1) * 0.8
-    const depth = 5 + (variant === 2 ? 1.8 : 0) + rng(2) * 0.6
-    const wallHue = 0x2a2436 + Math.floor(rng(3) * 0x050508)
-    const accentColors = [NEON_CYAN, NEON_PINK, NEON_YELLOW, 0x9a86ff]
-    const neonColor = accentColors[seed % accentColors.length]
-
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: wallHue,
-      roughness: 0.72 + rng(4) * 0.12,
-      metalness: 0.14 + rng(5) * 0.1,
+  private buildPlazaFloor() {
+    const cobbleMat = new THREE.MeshStandardMaterial({
+      color: 0x1c1824,
+      roughness: 0.72,
+      metalness: 0.18,
     })
+    const plaza = new THREE.Mesh(new THREE.PlaneGeometry(PLAZA_SIZE, PLAZA_SIZE), cobbleMat)
+    plaza.rotation.x = -Math.PI / 2
+    plaza.receiveShadow = true
+    this.scene.add(plaza)
+    this.worldColliders.push(plaza)
+
     const trimMat = new THREE.MeshStandardMaterial({
-      color: 0x3a3448,
-      roughness: 0.55,
+      color: NEON_CYAN,
+      emissive: NEON_CYAN,
+      emissiveIntensity: 1.2,
+      roughness: 0.4,
       metalness: 0.35,
     })
-    const metalMat = new THREE.MeshStandardMaterial({
-      color: 0x4a5058,
-      roughness: 0.35,
-      metalness: 0.75,
-    })
-
-    const body = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), wallMat)
-    body.position.set(x, height / 2, z)
-    body.castShadow = true
-    body.receiveShadow = true
-    this.scene.add(body)
-    this.worldColliders.push(body)
-
-    // Dakrand + rand details
-    const roofTrim = new THREE.Mesh(new THREE.BoxGeometry(width + 0.12, 0.1, depth + 0.12), trimMat)
-    roofTrim.position.set(x, height + 0.04, z)
-    this.scene.add(roofTrim)
-
-    const faceX = side > 0 ? -1 : 1
-    const faceWorldX = x + faceX * (width / 2 + 0.06)
-
-    // Ground floor plint (donkerder)
-    const plinthH = variant === 1 ? 1.35 : 0.85
-    const plinth = new THREE.Mesh(
-      new THREE.BoxGeometry(width + 0.04, plinthH, depth + 0.06),
-      new THREE.MeshStandardMaterial({ color: 0x1a1622, roughness: 0.85, metalness: 0.1 })
-    )
-    plinth.position.set(x, plinthH / 2, z)
-    plinth.receiveShadow = true
-    this.scene.add(plinth)
-
-    // Neon uithangbord — per variant anders
-    const neonMat = new THREE.MeshStandardMaterial({
-      color: neonColor,
-      emissive: neonColor,
-      emissiveIntensity: 2.4,
-      roughness: 0.35,
-      metalness: 0.25,
-    })
-    if (variant === 1) {
-      // Winkel: groot horizontaal bord
-      const sign = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.35, depth * 0.75), neonMat)
-      sign.position.set(faceWorldX, plinthH + 0.55, z)
-      this.scene.add(sign)
-      const awning = new THREE.Mesh(
-        new THREE.BoxGeometry(0.08, 0.04, depth * 0.82),
-        new THREE.MeshStandardMaterial({ color: 0x1a1420, roughness: 0.8, metalness: 0.1 })
+    const borderW = 0.35
+    const borders: [number, number, number, number][] = [
+      [0, 0.02, -PLAZA_HALF + borderW / 2, PLAZA_SIZE],
+      [0, 0.02, PLAZA_HALF - borderW / 2, PLAZA_SIZE],
+      [-PLAZA_HALF + borderW / 2, 0.02, 0, PLAZA_SIZE],
+      [PLAZA_HALF - borderW / 2, 0.02, 0, PLAZA_SIZE],
+    ]
+    for (const [bx, by, bz, len] of borders) {
+      const edge = new THREE.Mesh(
+        new THREE.PlaneGeometry(bx === 0 ? PLAZA_SIZE : borderW, bz === 0 ? PLAZA_SIZE : borderW),
+        trimMat,
       )
-      awning.position.set(faceWorldX + faceX * 0.18, plinthH + 0.95, z)
-      this.scene.add(awning)
-    } else if (variant === 2) {
-      // Industrieel: verticale neon strip
-      const sign = new THREE.Mesh(new THREE.BoxGeometry(0.08, height * 0.55, 0.14), neonMat)
-      sign.position.set(faceWorldX, height * 0.52, z)
-      this.scene.add(sign)
-      // Buizen langs gevel
-      for (let p = 0; p < 3; p++) {
-        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, height * 0.7, 6), metalMat)
-        pipe.position.set(faceWorldX + faceX * 0.04, height * 0.45, z - depth / 2 + 1 + p * (depth - 2) / 2)
-        this.scene.add(pipe)
-      }
-    } else {
-      const sign = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, depth * 0.55), neonMat)
-      sign.position.set(faceWorldX, height * 0.62 + rng(6) * 0.4, z)
-      this.scene.add(sign)
-    }
-    this.flickerMats.push({ mat: neonMat, base: 2.4, t: rng(7) * 6 })
-
-    // Balkons / vensterbanken (tower & standard)
-    if (variant === 0 || variant === 3) {
-      const rows = Math.floor(height / 2.2)
-      for (let r = 1; r < rows; r++) {
-        if (rng(10 + r) > 0.45) continue
-        const ledge = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, depth * 0.35), trimMat)
-        ledge.position.set(faceWorldX, 1.4 + r * 2, z + (rng(11 + r) - 0.5) * depth * 0.25)
-        this.scene.add(ledge)
-      }
+      edge.rotation.x = -Math.PI / 2
+      edge.position.set(bx, by, bz)
+      this.scene.add(edge)
+      this.flickerMats.push({ mat: trimMat, base: 1.2, t: Math.random() * 4 })
     }
 
-    // Ramen op straatkant
-    const windowGeo = new THREE.PlaneGeometry(0.38, 0.28)
-    const rows = Math.max(2, Math.floor((height - plinthH) / 1.45))
-    const cols = variant === 1 ? 5 : 4
-    const windowMesh = new THREE.InstancedMesh(
-      windowGeo,
-      new THREE.MeshBasicMaterial({ color: 0xffffff }),
-      rows * cols
-    )
-    const dummy = new THREE.Object3D()
-    const color = new THREE.Color()
-    const palette = [0x37e0ff, 0xff5aad, 0xffd76b, 0x9a86ff, 0xaaffcc]
-    let idx = 0
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        dummy.position.set(
-          faceWorldX + faceX * 0.02,
-          plinthH + 0.55 + r * 1.45,
-          z - depth / 2 + 0.85 + c * ((depth - 1.7) / (cols - 1))
-        )
-        dummy.rotation.y = faceX > 0 ? Math.PI / 2 : -Math.PI / 2
-        dummy.updateMatrix()
-        windowMesh.setMatrixAt(idx, dummy.matrix)
-        const lit = rng(20 + idx) > 0.32
-        color.set(lit ? palette[Math.floor(rng(21 + idx) * palette.length)] : 0x18141f)
-        if (lit) color.multiplyScalar(0.75 + rng(22 + idx) * 0.45)
-        windowMesh.setColorAt(idx, color)
-        idx++
+    // Kassteenpatroon — subtiele tegels
+    const tileMat = new THREE.MeshStandardMaterial({
+      color: 0x242030,
+      roughness: 0.68,
+      metalness: 0.12,
+    })
+    for (let tx = -PLAZA_HALF + 3; tx < PLAZA_HALF; tx += 2.4) {
+      for (let tz = -PLAZA_HALF + 3; tz < PLAZA_HALF; tz += 2.4) {
+        if (Math.abs(tx) < 5 && Math.abs(tz) < 5) continue
+        const tile = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 2.1), tileMat)
+        tile.rotation.x = -Math.PI / 2
+        tile.position.set(tx + 1.1, 0.015, tz + 1.1)
+        this.scene.add(tile)
       }
-    }
-    this.scene.add(windowMesh)
-
-    // Dak-antenne / airco units
-    if (variant === 2 || variant === 3 || rng(8) > 0.5) {
-      const ac = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.45), metalMat)
-      ac.position.set(x + (rng(9) - 0.5) * width * 0.5, height + 0.18, z + (rng(12) - 0.5) * depth * 0.4)
-      this.scene.add(ac)
-    }
-    if (rng(13) > 0.55) {
-      const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.2, 6), metalMat)
-      antenna.position.set(x + (rng(14) - 0.5) * width * 0.35, height + 0.65, z)
-      this.scene.add(antenna)
-      const tip = new THREE.Mesh(
-        new THREE.SphereGeometry(0.04, 8, 8),
-        new THREE.MeshStandardMaterial({ color: neonColor, emissive: neonColor, emissiveIntensity: 2 })
-      )
-      tip.position.set(antenna.position.x, height + 1.28, z)
-      this.scene.add(tip)
     }
   }
 
-  private addStreetProps() {
-    const metalMat = new THREE.MeshStandardMaterial({
-      color: 0x3a4048,
+  private makeSignTexture(text: string, hexColor: number): THREE.CanvasTexture {
+    const c = document.createElement('canvas')
+    c.width = 256
+    c.height = 64
+    const ctx = c.getContext('2d')!
+    ctx.fillStyle = '#0a0812'
+    ctx.fillRect(0, 0, 256, 64)
+    const css = `#${hexColor.toString(16).padStart(6, '0')}`
+    ctx.font = 'bold 34px Courier New, monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = css
+    ctx.shadowColor = css
+    ctx.shadowBlur = 14
+    ctx.fillText(text, 128, 32)
+    const tex = new THREE.CanvasTexture(c)
+    tex.needsUpdate = true
+    return tex
+  }
+
+  private addShop(kind: ShopKind, x: number, z: number, faceYaw: number) {
+    const configs: Record<ShopKind, { label: string; color: number; h: number; w: number; d: number }> = {
+      bar: { label: 'BAR', color: NEON_PINK, h: 4.2, w: 8, d: 5.5 },
+      weapons: { label: 'GUNS', color: NEON_ORANGE, h: 5.2, w: 7, d: 5 },
+      armor: { label: 'GEAR', color: NEON_CYAN, h: 5, w: 7, d: 5 },
+      bank: { label: 'BANK', color: NEON_YELLOW, h: 5.8, w: 8, d: 5.5 },
+      inn: { label: 'INN', color: 0xff8866, h: 4.8, w: 7.5, d: 5 },
+      tech: { label: 'TECH', color: 0x9a86ff, h: 5.5, w: 7, d: 5 },
+      clinic: { label: 'MED+', color: 0x44ff88, h: 4.6, w: 6.5, d: 5 },
+      general: { label: 'SHOP', color: NEON_PINK, h: 4.4, w: 6.5, d: 5 },
+    }
+    const cfg = configs[kind]
+    const group = new THREE.Group()
+    group.position.set(x, 0, z)
+    group.rotation.y = faceYaw
+
+    const wallMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2436,
+      roughness: 0.7,
+      metalness: 0.18,
+    })
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0x3a3448, roughness: 0.5, metalness: 0.4 })
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.35, metalness: 0.8 })
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(cfg.w, cfg.h, cfg.d), wallMat)
+    body.position.y = cfg.h / 2
+    body.castShadow = true
+    body.receiveShadow = true
+    group.add(body)
+    this.worldColliders.push(body)
+
+    const plinth = new THREE.Mesh(
+      new THREE.BoxGeometry(cfg.w + 0.08, 0.9, cfg.d + 0.08),
+      new THREE.MeshStandardMaterial({ color: 0x1a1622, roughness: 0.85, metalness: 0.1 }),
+    )
+    plinth.position.y = 0.45
+    group.add(plinth)
+
+    const signTex = this.makeSignTexture(cfg.label, cfg.color)
+    const signMat = new THREE.MeshStandardMaterial({
+      map: signTex,
+      emissive: cfg.color,
+      emissiveIntensity: 0.85,
+      emissiveMap: signTex,
       roughness: 0.4,
-      metalness: 0.8,
+      metalness: 0.2,
     })
-    const crateMat = new THREE.MeshStandardMaterial({ color: 0x2a2228, roughness: 0.85, metalness: 0.1 })
-    const dumpMat = new THREE.MeshStandardMaterial({ color: 0x1a3a32, roughness: 0.6, metalness: 0.35 })
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 0.72), signMat)
+    sign.position.set(0, cfg.h * 0.72, cfg.d / 2 + 0.06)
+    group.add(sign)
+    this.flickerMats.push({ mat: signMat, base: 0.85, t: Math.random() * 5 })
 
-    const propSpots: [number, number][] = [
-      [-HALF_ROAD - 0.5, -18], [HALF_ROAD + 0.5, -6], [-HALF_ROAD - 0.5, 10],
-      [HALF_ROAD + 0.5, 22], [-HALF_ROAD - 0.5, -30], [HALF_ROAD + 0.5, 16],
+    const door = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 2.1, 0.08),
+      new THREE.MeshStandardMaterial({ color: 0x141018, roughness: 0.75, metalness: 0.15 }),
+    )
+    door.position.set(0, 1.15, cfg.d / 2 + 0.04)
+    group.add(door)
+
+    const awningMat = new THREE.MeshStandardMaterial({
+      color: cfg.color,
+      emissive: cfg.color,
+      emissiveIntensity: 0.35,
+      roughness: 0.6,
+      metalness: 0.1,
+      side: THREE.DoubleSide,
+    })
+    const awning = new THREE.Mesh(new THREE.BoxGeometry(cfg.w * 0.85, 0.04, 1.4), awningMat)
+    awning.position.set(0, 2.35, cfg.d / 2 + 0.85)
+    awning.rotation.x = 0.22
+    group.add(awning)
+
+    // Ramen
+    const winMat = new THREE.MeshBasicMaterial({ color: 0x55ddff })
+    for (let wi = -1; wi <= 1; wi += 2) {
+      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.42), winMat)
+      win.position.set(wi * 1.8, cfg.h * 0.55, cfg.d / 2 + 0.05)
+      group.add(win)
+    }
+
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(cfg.w + 0.15, 0.12, cfg.d + 0.15), trimMat)
+    roof.position.y = cfg.h + 0.06
+    group.add(roof)
+
+    // Shop-specifieke props
+    if (kind === 'weapons') {
+      for (let r = 0; r < 3; r++) {
+        const rack = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.4, 0.5), metalMat)
+        rack.position.set(-2 + r * 2, 1.1, cfg.d / 2 + 1.1)
+        group.add(rack)
+        const gun = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.7), metalMat)
+        gun.position.set(-2 + r * 2, 1.5, cfg.d / 2 + 1.1)
+        gun.rotation.x = -0.4
+        group.add(gun)
+      }
+    } else if (kind === 'armor') {
+      const mannequin = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 0.9, 4, 8), trimMat)
+      mannequin.position.set(1.8, 1.2, cfg.d / 2 + 1)
+      group.add(mannequin)
+      const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.06, 8), metalMat)
+      shield.rotation.x = Math.PI / 2
+      shield.position.set(-1.8, 1.3, cfg.d / 2 + 1)
+      group.add(shield)
+    } else if (kind === 'bank') {
+      const vault = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.12, 16), metalMat)
+      vault.rotation.x = Math.PI / 2
+      vault.position.set(0, 1.2, cfg.d / 2 + 0.08)
+      group.add(vault)
+      const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.03, 6, 16), metalMat)
+      wheel.position.set(0, 1.2, cfg.d / 2 + 0.16)
+      group.add(wheel)
+    } else if (kind === 'bar') {
+      for (let b = 0; b < 2; b++) {
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.7, 10), trimMat)
+        barrel.position.set(-2.5 + b * 5, 0.35, cfg.d / 2 + 1.2)
+        group.add(barrel)
+      }
+    } else if (kind === 'tech') {
+      const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.5, 8), metalMat)
+      dish.position.set(0, cfg.h + 0.45, 0)
+      group.add(dish)
+      const screen = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.9, 0.55),
+        new THREE.MeshBasicMaterial({ color: 0x6644ff }),
+      )
+      screen.position.set(0, 1.6, cfg.d / 2 + 0.06)
+      group.add(screen)
+    } else if (kind === 'clinic') {
+      const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.12, 0.06), signMat)
+      crossH.position.set(0, cfg.h * 0.82, cfg.d / 2 + 0.07)
+      group.add(crossH)
+      const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.55, 0.06), signMat)
+      crossV.position.set(0, cfg.h * 0.82, cfg.d / 2 + 0.07)
+      group.add(crossV)
+    } else if (kind === 'inn') {
+      const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.8, 0.35), trimMat)
+      chimney.position.set(2, cfg.h + 0.5, -1)
+      group.add(chimney)
+    }
+
+    this.scene.add(group)
+  }
+
+  private buildCourtyardShops() {
+    const inset = PLAZA_HALF - 1.5
+    // Noordgevel — wapens, armor, tech
+    this.addShop('weapons', -10, -inset, 0)
+    this.addShop('armor', 0, -inset, 0)
+    this.addShop('tech', 10, -inset, 0)
+    // Zuidgevel — inn, general, bank
+    this.addShop('inn', -10, inset, Math.PI)
+    this.addShop('general', 0, inset, Math.PI)
+    this.addShop('bank', 10, inset, Math.PI)
+    // Westgevel — bar
+    this.addShop('bar', -inset, -6, Math.PI / 2)
+    // Oostgevel — clinic
+    this.addShop('clinic', inset, 6, -Math.PI / 2)
+
+    // Hoekgebouwen — vult de hoeken op
+    this.addCornerBlock(-inset, -inset, 0)
+    this.addCornerBlock(inset, -inset, Math.PI / 2)
+    this.addCornerBlock(-inset, inset, -Math.PI / 2)
+    this.addCornerBlock(inset, inset, Math.PI)
+  }
+
+  private addCornerBlock(x: number, z: number, rot: number) {
+    const group = new THREE.Group()
+    group.position.set(x, 0, z)
+    group.rotation.y = rot
+    const mat = new THREE.MeshStandardMaterial({ color: 0x221e2c, roughness: 0.75, metalness: 0.15 })
+    const block = new THREE.Mesh(new THREE.BoxGeometry(5, 6.5, 5), mat)
+    block.position.y = 3.25
+    block.castShadow = true
+    group.add(block)
+    this.worldColliders.push(block)
+    this.scene.add(group)
+  }
+
+  private buildMarketStalls() {
+    const stallColors = [NEON_YELLOW, NEON_PINK, NEON_CYAN, NEON_ORANGE, 0x9a86ff, NEON_YELLOW]
+    const labels = ['FOOD', 'LOOT', 'DATA', 'PARTS', 'GEAR', 'DRINKS']
+    const spots: [number, number][] = [
+      [-6, -2], [6, -2], [-6, 4], [6, 4], [0, -6], [0, 6],
     ]
-    propSpots.forEach(([px, pz], i) => {
-      if (i % 3 === 0) {
-        const dumpster = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.65, 0.55), dumpMat)
-        dumpster.position.set(px, 0.38, pz)
-        dumpster.castShadow = true
-        this.scene.add(dumpster)
-        const lid = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.06, 0.57), metalMat)
-        lid.position.set(px, 0.72, pz)
-        this.scene.add(lid)
-      } else if (i % 3 === 1) {
-        for (let c = 0; c < 2 + (i % 2); c++) {
-          const crate = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, 0.45), crateMat)
-          crate.position.set(px + c * 0.5 - 0.25, 0.28 + c * 0.02, pz + (c % 2) * 0.15)
-          crate.rotation.y = c * 0.4
-          crate.castShadow = true
-          this.scene.add(crate)
-        }
-      } else {
-        // Stoom/rooster op stoep
-        const grate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.35), metalMat)
-        grate.position.set(px, 0.17, pz)
-        this.scene.add(grate)
-      }
-    })
 
-    // Neon lantaarnpalen
-    for (let lz = -STREET_LENGTH / 2 + 8; lz < STREET_LENGTH / 2; lz += 14) {
-      for (const sx of [-HALF_ROAD - SIDEWALK_W * 0.5, HALF_ROAD + SIDEWALK_W * 0.5]) {
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 2.8, 8), metalMat)
-        pole.position.set(sx, 1.5, lz)
-        pole.castShadow = true
-        this.scene.add(pole)
-        const lampColor = lz % 28 < 14 ? NEON_CYAN : NEON_PINK
-        const lamp = new THREE.Mesh(
-          new THREE.BoxGeometry(0.18, 0.08, 0.35),
-          new THREE.MeshStandardMaterial({
-            color: lampColor,
-            emissive: lampColor,
-            emissiveIntensity: 2,
-          })
-        )
-        lamp.position.set(sx, 2.85, lz)
-        this.scene.add(lamp)
+    spots.forEach(([sx, sz], i) => {
+      const stall = new THREE.Group()
+      stall.position.set(sx, 0, sz)
+      stall.rotation.y = (i % 3) * 0.6
+
+      const woodMat = new THREE.MeshStandardMaterial({ color: 0x3a3028, roughness: 0.82, metalness: 0.08 })
+      const color = stallColors[i % stallColors.length]
+      const awningMat = new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.45,
+        roughness: 0.55,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+      })
+
+      const counter = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 1.1), woodMat)
+      counter.position.y = 0.45
+      counter.castShadow = true
+      stall.add(counter)
+
+      const awning = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.05, 1.8), awningMat)
+      awning.position.set(0, 1.65, 0.2)
+      awning.rotation.x = 0.18
+      stall.add(awning)
+      this.flickerMats.push({ mat: awningMat, base: 0.45, t: Math.random() * 3 })
+
+      const signTex = this.makeSignTexture(labels[i], color)
+      const signMat = new THREE.MeshStandardMaterial({
+        map: signTex,
+        emissive: color,
+        emissiveIntensity: 0.7,
+        emissiveMap: signTex,
+      })
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.38), signMat)
+      sign.position.set(0, 1.35, 0.62)
+      sign.rotation.x = -0.15
+      stall.add(sign)
+
+      for (let c = 0; c < 2; c++) {
+        const crate = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, 0.45), woodMat)
+        crate.position.set(-0.6 + c * 1.2, 0.22, 0.85)
+        crate.rotation.y = c * 0.5
+        stall.add(crate)
       }
+
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.7, 6), woodMat)
+      pole.position.set(-1.1, 0.85, -0.3)
+      stall.add(pole)
+      const pole2 = pole.clone()
+      pole2.position.x = 1.1
+      stall.add(pole2)
+
+      this.scene.add(stall)
+    })
+  }
+
+  private buildBarPatio() {
+    const woodMat = new THREE.MeshStandardMaterial({ color: 0x3a3028, roughness: 0.8, metalness: 0.1 })
+    const tableSpots: [number, number][] = [
+      [-11, 2], [-9, 5], [-12, 8], [-8, 1],
+    ]
+    for (const [tx, tz] of tableSpots) {
+      const table = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.08, 10), woodMat)
+      table.position.set(tx, 0.55, tz)
+      table.castShadow = true
+      this.scene.add(table)
+
+      for (let c = 0; c < 3; c++) {
+        const chair = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.5, 0.35), woodMat)
+        const angle = (c / 3) * Math.PI * 2
+        chair.position.set(tx + Math.cos(angle) * 0.85, 0.25, tz + Math.sin(angle) * 0.85)
+        this.scene.add(chair)
+      }
+
+      const mug = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.06, 0.05, 0.12, 8),
+        new THREE.MeshStandardMaterial({ color: NEON_PINK, emissive: NEON_PINK, emissiveIntensity: 0.6 }),
+      )
+      mug.position.set(tx, 0.64, tz)
+      this.scene.add(mug)
+    }
+
+    const stringLightMat = new THREE.MeshStandardMaterial({
+      color: NEON_PINK,
+      emissive: NEON_PINK,
+      emissiveIntensity: 2,
+    })
+    for (let i = 0; i < 5; i++) {
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), stringLightMat)
+      bulb.position.set(-12 + i * 1.2, 3.2, 4.5 - Math.sin(i) * 0.3)
+      this.scene.add(bulb)
+      this.flickerMats.push({ mat: stringLightMat, base: 2, t: Math.random() * 2 })
+    }
+  }
+
+  private buildCentralFountain() {
+    const stoneMat = new THREE.MeshStandardMaterial({ color: 0x3a3848, roughness: 0.55, metalness: 0.35 })
+    const pool = new THREE.Mesh(new THREE.CylinderGeometry(2.8, 3, 0.35, 20), stoneMat)
+    pool.position.y = 0.18
+    pool.receiveShadow = true
+    this.scene.add(pool)
+
+    const waterMat = new THREE.MeshStandardMaterial({
+      color: NEON_CYAN,
+      emissive: NEON_CYAN,
+      emissiveIntensity: 0.35,
+      roughness: 0.15,
+      metalness: 0.6,
+      transparent: true,
+      opacity: 0.85,
+    })
+    const water = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 0.06, 20), waterMat)
+    water.position.y = 0.38
+    this.scene.add(water)
+    this.flickerMats.push({ mat: waterMat, base: 0.35, t: Math.random() * 3 })
+
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 2.2, 10), stoneMat)
+    pillar.position.y = 1.4
+    pillar.castShadow = true
+    this.scene.add(pillar)
+
+    const orb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.45, 12, 12),
+      new THREE.MeshStandardMaterial({
+        color: NEON_CYAN,
+        emissive: NEON_CYAN,
+        emissiveIntensity: 1.8,
+        roughness: 0.2,
+        metalness: 0.5,
+      }),
+    )
+    orb.position.y = 2.6
+    this.scene.add(orb)
+
+    const point = new THREE.PointLight(NEON_CYAN, 12, 14, 1.6)
+    point.position.set(0, 2.6, 0)
+    this.scene.add(point)
+  }
+
+  private buildCourtyardProps() {
+    const woodMat = new THREE.MeshStandardMaterial({ color: 0x3a3028, roughness: 0.82, metalness: 0.08 })
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.4, metalness: 0.8 })
+    const barrelSpots: [number, number][] = [
+      [8, -8], [12, 0], [-8, 10], [4, 12], [-12, -4],
+    ]
+    for (const [bx, bz] of barrelSpots) {
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.75, 10), woodMat)
+      barrel.position.set(bx, 0.38, bz)
+      barrel.castShadow = true
+      this.scene.add(barrel)
+    }
+
+    for (let lp = 0; lp < 8; lp++) {
+      const angle = (lp / 8) * Math.PI * 2
+      const lx = Math.cos(angle) * (PLAZA_HALF - 3.5)
+      const lz = Math.sin(angle) * (PLAZA_HALF - 3.5)
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 3.2, 8), metalMat)
+      pole.position.set(lx, 1.6, lz)
+      pole.castShadow = true
+      this.scene.add(pole)
+      const lampColor = lp % 2 ? NEON_CYAN : NEON_PINK
+      const lampMat = new THREE.MeshStandardMaterial({
+        color: lampColor,
+        emissive: lampColor,
+        emissiveIntensity: 2.2,
+      })
+      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.1, 0.4), lampMat)
+      lamp.position.set(lx, 3.25, lz)
+      this.scene.add(lamp)
+      this.flickerMats.push({ mat: lampMat, base: 2.2, t: Math.random() * 4 })
+    }
+  }
+
+  private buildCourtyardLighting() {
+    const glowTex = this.makeGlowTexture()
+    const spots: [number, number, number, number][] = [
+      [0, 4, 0, NEON_CYAN],
+      [-12, 3.5, -8, NEON_PINK],
+      [12, 3.5, 8, NEON_YELLOW],
+      [-8, 3.5, 10, NEON_ORANGE],
+    ]
+    for (const [x, y, z, color] of spots) {
+      const light = new THREE.PointLight(color, 18, 20, 1.8)
+      light.position.set(x, y, z)
+      this.scene.add(light)
+      const glow = new THREE.Mesh(
+        new THREE.PlaneGeometry(4, 4),
+        new THREE.MeshBasicMaterial({
+          color,
+          map: glowTex,
+          transparent: true,
+          opacity: 0.14,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      )
+      glow.rotation.x = -Math.PI / 2
+      glow.position.set(x, 0.04, z)
+      this.scene.add(glow)
     }
   }
 
@@ -589,9 +715,9 @@ export class Game {
     const count = 1300
     const positions = new Float32Array(count * 3)
     for (let i = 0; i < count; i++) {
-      positions[i * 3] = THREE.MathUtils.randFloatSpread(ROAD_WIDTH + 18)
+      positions[i * 3] = THREE.MathUtils.randFloatSpread(PLAZA_SIZE + 8)
       positions[i * 3 + 1] = THREE.MathUtils.randFloat(0.2, 20)
-      positions[i * 3 + 2] = THREE.MathUtils.randFloatSpread(STREET_LENGTH + 12)
+      positions[i * 3 + 2] = THREE.MathUtils.randFloatSpread(PLAZA_SIZE + 8)
     }
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
@@ -763,7 +889,7 @@ export class Game {
       armL, armR, this.legL, this.legR, this.gunHolder,
     )
     this.player.add(this.playerBody)
-    this.player.position.set(0, 0, 6)
+    this.player.position.set(0, 0, 10)
     this.scene.add(this.player)
   }
 
@@ -1343,14 +1469,14 @@ export class Game {
   private updateAtmosphere(dt: number, elapsed: number) {
     // Regen valt en wrapt terug omhoog
     const pos = this.rain.geometry.getAttribute('position') as THREE.BufferAttribute
-    const spreadX = (ROAD_WIDTH + 18) / 2
+    const spread = (PLAZA_SIZE + 8) / 2
     for (let i = 0; i < pos.count; i++) {
       let y = pos.getY(i) - 19 * dt
       if (y < 0) y += 20
       pos.setY(i, y)
       let x = pos.getX(i) + 2.4 * dt * Math.sin(i)
-      if (x > spreadX) x -= spreadX * 2
-      if (x < -spreadX) x += spreadX * 2
+      if (x > spread) x -= spread * 2
+      if (x < -spread) x += spread * 2
       pos.setX(i, x)
     }
     pos.needsUpdate = true
