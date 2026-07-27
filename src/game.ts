@@ -596,6 +596,226 @@ export class Game {
 
   // ── Speler ──────────────────────────────────────────────────────────────
 
+  private playerPart(
+    geo: THREE.BufferGeometry,
+    mat: THREE.Material,
+    pos: [number, number, number] = [0, 0, 0],
+    rot: [number, number, number] = [0, 0, 0],
+    scale: [number, number, number] = [1, 1, 1],
+    castShadow = true,
+  ): THREE.Mesh {
+    const mesh = new THREE.Mesh(geo, mat)
+    mesh.position.set(...pos)
+    mesh.rotation.set(...rot)
+    mesh.scale.set(...scale)
+    if (castShadow) mesh.castShadow = true
+    return mesh
+  }
+
+  private buildOrganicHead(
+    skin: THREE.Material,
+    skinDark: THREE.Material,
+    hairMat: THREE.Material,
+    blueGlow: THREE.Material,
+  ): THREE.Object3D[] {
+    const parts: THREE.Object3D[] = []
+    const eyeWhite = new THREE.MeshStandardMaterial({ color: 0xe8e0d8, roughness: 0.35, metalness: 0.05 })
+    const irisMat = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.4, metalness: 0.1 })
+    const lipMat = new THREE.MeshStandardMaterial({ color: 0x4a3028, roughness: 0.55, metalness: 0.04 })
+
+    parts.push(this.playerPart(new THREE.CylinderGeometry(0.052, 0.062, 0.14, 12), skin, [0, 1.51, 0]))
+
+    const head = this.playerPart(new THREE.SphereGeometry(0.132, 24, 24), skin, [0, 1.72, 0], [0, 0, 0], [0.94, 1.08, 0.98])
+    parts.push(head)
+
+    parts.push(this.playerPart(new THREE.SphereGeometry(0.1, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), skinDark, [0, 1.64, 0.03], [0.12, 0, 0], [1.05, 0.72, 0.92]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.07, 0.028, 0.05), skinDark, [0, 1.615, 0.1], [0.35, 0, 0], [1, 0.85, 1.1]))
+
+    parts.push(this.playerPart(new THREE.SphereGeometry(0.038, 10, 10), skin, [-0.09, 1.73, 0.02], [0, 0, 0.45], [0.55, 1.1, 0.7]))
+    parts.push(this.playerPart(new THREE.SphereGeometry(0.038, 10, 10), skin, [0.09, 1.73, 0.02], [0, 0, -0.45], [0.55, 1.1, 0.7]))
+
+    parts.push(this.playerPart(new THREE.SphereGeometry(0.018, 8, 8), skinDark, [0, 1.705, 0.125], [0.2, 0, 0]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.024, 0.012, 0.018), skinDark, [0, 1.688, 0.138], [0.15, 0, 0]))
+
+    parts.push(this.playerPart(new THREE.SphereGeometry(0.028, 10, 8), lipMat, [0, 1.668, 0.118], [0.08, 0, 0], [1.2, 0.45, 0.7]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.034, 0.008, 0.012), lipMat, [0, 1.662, 0.128]))
+
+    parts.push(this.playerPart(new THREE.SphereGeometry(0.034, 10, 10, 0, Math.PI * 2, 0, Math.PI * 0.42), hairMat, [0, 1.795, -0.01], [0, 0, 0], [1.02, 0.62, 1.04]))
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2
+      parts.push(
+        this.playerPart(
+          new THREE.BoxGeometry(0.018, 0.035, 0.04),
+          hairMat,
+          [Math.cos(a) * 0.1, 1.76 + Math.sin(a) * 0.02, Math.sin(a) * 0.08 - 0.04],
+          [0.1, a * 0.15, 0.08],
+        ),
+      )
+    }
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.12, 0.045, 0.1), hairMat, [0, 1.715, -0.075], [0.1, 0, 0]))
+
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.062, 0.014, 0.022), skinDark, [-0.052, 1.788, 0.112], [0, 0, 0.18]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.062, 0.014, 0.022), skinDark, [0.052, 1.788, 0.112], [0, 0, -0.18]))
+
+    parts.push(this.playerPart(new THREE.SphereGeometry(0.016, 10, 10), eyeWhite, [-0.044, 1.756, 0.118], [0, 0, 0], [1.1, 0.75, 0.55]))
+    parts.push(this.playerPart(new THREE.SphereGeometry(0.009, 8, 8), irisMat, [-0.044, 1.756, 0.128]))
+    parts.push(this.playerPart(new THREE.SphereGeometry(0.004, 6, 6), new THREE.MeshStandardMaterial({ color: 0x050508 }), [-0.044, 1.756, 0.134]))
+
+    const eyeSocket = this.playerPart(new THREE.SphereGeometry(0.028, 12, 12), skinDark, [0.05, 1.754, 0.108], [0, 0.15, 0], [1.1, 0.85, 0.75])
+    parts.push(eyeSocket)
+    parts.push(this.playerPart(new THREE.TorusGeometry(0.034, 0.005, 10, 28), blueGlow, [0.05, 1.756, 0.12], [0, 0.15, 0]))
+    parts.push(this.playerPart(new THREE.CircleGeometry(0.024, 20), blueGlow, [0.05, 1.756, 0.127], [0, 0.15, 0]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.003, 0.032, 0.003), blueGlow, [0.05, 1.756, 0.132], [0, 0.15, 0]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.055, 0.004, 0.004), blueGlow, [0.05, 1.772, 0.115], [0, 0.15, 0.1]))
+
+    parts.push(this.playerPart(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 8), blueGlow, [0.082, 1.748, 0.04], [0, 0, -0.7]))
+    parts.push(this.playerPart(new THREE.SphereGeometry(0.014, 8, 8), blueGlow, [0.098, 1.742, 0.018]))
+
+    return parts
+  }
+
+  private buildFurCollar(furMat: THREE.Material): THREE.Object3D[] {
+    const parts: THREE.Object3D[] = []
+    for (let i = 0; i < 16; i++) {
+      const t = i / 16
+      const angle = -Math.PI * 0.75 + t * Math.PI * 1.5
+      const r = 0.2 + Math.sin(t * Math.PI) * 0.04
+      const jitter = Math.sin(i * 2.17) * 0.012
+      parts.push(
+        this.playerPart(
+          new THREE.SphereGeometry(0.032 + (i % 3) * 0.004, 8, 8),
+          furMat,
+          [Math.cos(angle) * r, 1.52 + Math.sin(t * Math.PI) * 0.04 + jitter, Math.sin(angle) * 0.12 - 0.02],
+          [Math.sin(i * 1.3) * 0.25, angle, Math.cos(i * 0.9) * 0.2],
+          [1 + (i % 4) * 0.08, 0.85 + (i % 3) * 0.1, 1 + (i % 2) * 0.15],
+        ),
+      )
+    }
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.42, 0.12, 0.18), furMat, [0, 1.505, -0.07], [0.08, 0, 0]))
+    return parts
+  }
+
+  private buildLayeredPauldron(side: number, armorMat: THREE.Material, orangeGlow: THREE.Material): THREE.Object3D[] {
+    const x = side * 0.27
+    return [
+      this.playerPart(new THREE.BoxGeometry(0.16, 0.08, 0.18), armorMat, [x, 1.48, -0.02], [0.15, 0, side * -0.25]),
+      this.playerPart(new THREE.BoxGeometry(0.14, 0.06, 0.16), armorMat, [x, 1.54, 0.04], [-0.2, 0, side * -0.15], [1, 1, 1]),
+      this.playerPart(new THREE.CylinderGeometry(0.012, 0.012, 0.018, 6), armorMat, [x - side * 0.05, 1.5, 0.1], [Math.PI / 2, 0, 0]),
+      this.playerPart(new THREE.CylinderGeometry(0.012, 0.012, 0.018, 6), armorMat, [x + side * 0.05, 1.46, 0.08], [Math.PI / 2, 0, 0]),
+      this.playerPart(new THREE.BoxGeometry(0.12, 0.012, 0.14), orangeGlow, [x, 1.42, 0.12], [0.1, 0, side * -0.1]),
+      this.playerPart(new THREE.BoxGeometry(0.04, 0.04, 0.04), armorMat, [x, 1.56, 0.1], [0.4, 0.45, 0]),
+    ]
+  }
+
+  private buildDetailedCoat(
+    coatMat: THREE.Material,
+    orangeGlow: THREE.Material,
+    leather: THREE.Material,
+    armorMat: THREE.Material,
+  ): THREE.Object3D[] {
+    const parts: THREE.Object3D[] = []
+    const lining = new THREE.MeshStandardMaterial({ color: 0x18141c, roughness: 0.75, metalness: 0.12 })
+
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.48, 0.42, 0.26), coatMat, [0, 1.3, 0]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.46, 1.12, 0.06), coatMat, [0, 0.78, -0.16]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.04, 1.08, 0.22), coatMat, [-0.22, 0.8, 0]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.04, 1.08, 0.22), coatMat, [0.22, 0.8, 0]))
+
+    for (let i = 0; i < 5; i++) {
+      const y = 0.35 + i * 0.18
+      const flare = 0.22 + i * 0.018
+      parts.push(this.playerPart(new THREE.BoxGeometry(flare, 0.16, 0.04), coatMat, [-0.1, y, -0.12 - i * 0.01], [0.05 + i * 0.02, 0.08, 0]))
+      parts.push(this.playerPart(new THREE.BoxGeometry(flare, 0.16, 0.04), coatMat, [0.1, y, -0.12 - i * 0.01], [0.05 + i * 0.02, -0.08, 0]))
+    }
+
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.2, 0.55, 0.045), coatMat, [-0.14, 0.95, 0.145], [0, 0.25, 0]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.2, 0.55, 0.045), coatMat, [0.14, 0.95, 0.145], [0, -0.25, 0]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.08, 0.45, 0.03), lining, [-0.04, 0.98, 0.135], [0, 0.12, 0]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.08, 0.45, 0.03), lining, [0.04, 0.98, 0.135], [0, -0.12, 0]))
+
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.06, 0.12, 0.04), coatMat, [-0.18, 1.05, 0.12], [0, 0, 0.15]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.06, 0.12, 0.04), coatMat, [0.18, 1.05, 0.12], [0, 0, -0.15]))
+
+    const seamPositions: [number, number, number][] = [
+      [-0.24, 0.88, 0.155],
+      [0.24, 0.88, 0.155],
+      [0, 0.92, -0.185],
+      [-0.29, 1.22, 0.1],
+      [0.29, 1.22, 0.1],
+    ]
+    for (const p of seamPositions) {
+      parts.push(this.playerPart(new THREE.BoxGeometry(0.012, 1.02, 0.012), orangeGlow, p))
+    }
+
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.42, 0.065, 0.24), leather, [0, 0.88, 0.02]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.11, 0.055, 0.035), armorMat, [0, 0.88, 0.155]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.035, 0.04, 0.02), leather, [-0.16, 0.88, 0.14]))
+    parts.push(this.playerPart(new THREE.BoxGeometry(0.035, 0.04, 0.02), leather, [0.16, 0.88, 0.14]))
+
+    return parts
+  }
+
+  private buildOrganicLeg(
+    side: number,
+    suitMat: THREE.Material,
+    armorMat: THREE.Material,
+    bootMat: THREE.Material,
+    orangeGlow: THREE.Material,
+  ): THREE.Group {
+    const leg = new THREE.Group()
+    leg.position.set(side * 0.12, 0.88, 0)
+
+    const thigh = this.playerPart(new THREE.CapsuleGeometry(0.068, 0.26, 6, 14), suitMat, [0, -0.2, 0.01])
+    const thighPlate = this.playerPart(new THREE.BoxGeometry(0.1, 0.18, 0.06), armorMat, [0, -0.16, 0.06], [0.08, 0, 0])
+    const knee = this.playerPart(new THREE.SphereGeometry(0.058, 12, 12), armorMat, [0, -0.4, 0.05], [0, 0, 0], [1.1, 0.85, 1])
+    const kneeCap = this.playerPart(new THREE.BoxGeometry(0.08, 0.06, 0.05), armorMat, [0, -0.4, 0.1])
+    const shin = this.playerPart(new THREE.CapsuleGeometry(0.055, 0.24, 6, 14), suitMat, [0, -0.58, -0.01])
+    const shinGuard = this.playerPart(new THREE.BoxGeometry(0.08, 0.22, 0.05), armorMat, [0, -0.56, 0.06], [0.06, 0, 0])
+    const bootUpper = this.playerPart(new THREE.CylinderGeometry(0.062, 0.07, 0.1, 10), bootMat, [0, -0.74, 0.03])
+    const bootBody = this.playerPart(new THREE.BoxGeometry(0.12, 0.1, 0.26), bootMat, [0, -0.8, 0.06], [0.08, 0, 0], [1, 1, 1.05])
+    const bootToe = this.playerPart(new THREE.SphereGeometry(0.06, 10, 10), bootMat, [0, -0.82, 0.18], [0.4, 0, 0], [1.1, 0.7, 1.3])
+    const bootSole = this.playerPart(new THREE.BoxGeometry(0.13, 0.025, 0.28), new THREE.MeshStandardMaterial({ color: 0x040408, roughness: 0.9, metalness: 0.2 }), [0, -0.86, 0.08])
+    const bootStrap = this.playerPart(new THREE.BoxGeometry(0.11, 0.018, 0.02), orangeGlow, [0, -0.76, 0.14])
+    const bootGlow = this.playerPart(new THREE.BoxGeometry(0.08, 0.018, 0.035), orangeGlow, [0, -0.62, 0.165])
+
+    leg.add(thigh, thighPlate, knee, kneeCap, shin, shinGuard, bootUpper, bootBody, bootToe, bootSole, bootStrap, bootGlow)
+    return leg
+  }
+
+  private buildOrganicArm(
+    side: number,
+    coatMat: THREE.Material,
+    armorMat: THREE.Material,
+    orangeGlow: THREE.Material,
+  ): THREE.Group {
+    const arm = new THREE.Group()
+    arm.position.set(side * 0.27, 1.4, 0.03)
+
+    const upper = this.playerPart(new THREE.CapsuleGeometry(0.052, 0.24, 6, 12), coatMat, [0, -0.14, 0])
+    const upperPlate = this.playerPart(new THREE.BoxGeometry(0.1, 0.16, 0.1), armorMat, [0, -0.1, 0.04], [0.1, 0, side * -0.1])
+    const elbow = this.playerPart(new THREE.SphereGeometry(0.048, 12, 12), armorMat, [0, -0.3, 0.02], [0, 0, 0], [1.15, 1, 1.1])
+    const forearm = this.playerPart(new THREE.CapsuleGeometry(0.044, 0.2, 6, 12), coatMat, [0, -0.48, 0.02])
+    const forearmPlate = this.playerPart(new THREE.BoxGeometry(0.08, 0.18, 0.08), armorMat, [0, -0.46, 0.05])
+
+    const hand = new THREE.Group()
+    hand.position.set(0, -0.6, 0.04)
+    hand.add(this.playerPart(new THREE.BoxGeometry(0.07, 0.05, 0.08), armorMat, [0, 0, 0], [0, 0, 0], [1, 0.9, 1.1]))
+
+    const fingerSpread = [-0.024, -0.008, 0.008, 0.024]
+    for (let f = 0; f < 4; f++) {
+      const fx = fingerSpread[f]
+      hand.add(this.playerPart(new THREE.CapsuleGeometry(0.008, 0.018, 4, 6), armorMat, [fx, -0.028, 0.03], [0.15, 0, 0]))
+      hand.add(this.playerPart(new THREE.CapsuleGeometry(0.007, 0.014, 4, 6), armorMat, [fx, -0.048, 0.038], [0.25, 0, 0]))
+      hand.add(this.playerPart(new THREE.CapsuleGeometry(0.006, 0.012, 4, 6), armorMat, [fx, -0.064, 0.042], [0.35, 0, 0]))
+    }
+    hand.add(this.playerPart(new THREE.CapsuleGeometry(0.009, 0.02, 4, 6), armorMat, [-0.038, -0.02, 0.02], [0, 0, -0.6]))
+    hand.add(this.playerPart(new THREE.CapsuleGeometry(0.008, 0.016, 4, 6), armorMat, [-0.044, -0.038, 0.028], [0, 0, -0.5]))
+
+    const gauntletGlow = this.playerPart(new THREE.BoxGeometry(0.075, 0.015, 0.09), orangeGlow, [0, -0.52, 0.06])
+    arm.add(upper, upperPlate, elbow, forearm, forearmPlate, gauntletGlow, hand)
+    return arm
+  }
+
   private buildUzi(metal: THREE.Material, gripMat: THREE.Material, neon: THREE.Material) {
     const uzi = new THREE.Group()
 
@@ -654,42 +874,13 @@ export class Game {
   }
 
   private buildPlayer() {
-    // Materialen — donker tactisch palet zoals reference art
-    const skin = new THREE.MeshStandardMaterial({
-      color: 0x3d2e28,
-      roughness: 0.58,
-      metalness: 0.06,
-    })
-    const skinDark = new THREE.MeshStandardMaterial({
-      color: 0x2a1e1a,
-      roughness: 0.62,
-      metalness: 0.05,
-    })
-    const hairMat = new THREE.MeshStandardMaterial({
-      color: 0x0a0808,
-      roughness: 0.9,
-      metalness: 0.05,
-    })
-    const coatMat = new THREE.MeshStandardMaterial({
-      color: 0x0c0c10,
-      roughness: 0.62,
-      metalness: 0.28,
-    })
-    const furMat = new THREE.MeshStandardMaterial({
-      color: 0x5a5a62,
-      roughness: 0.95,
-      metalness: 0.02,
-    })
-    const suitMat = new THREE.MeshStandardMaterial({
-      color: 0x121018,
-      roughness: 0.72,
-      metalness: 0.18,
-    })
-    const armorMat = new THREE.MeshStandardMaterial({
-      color: 0x3a3e48,
-      roughness: 0.32,
-      metalness: 0.82,
-    })
+    const skin = new THREE.MeshStandardMaterial({ color: 0x3d2e28, roughness: 0.58, metalness: 0.06 })
+    const skinDark = new THREE.MeshStandardMaterial({ color: 0x2a1e1a, roughness: 0.62, metalness: 0.05 })
+    const hairMat = new THREE.MeshStandardMaterial({ color: 0x0a0808, roughness: 0.9, metalness: 0.05 })
+    const coatMat = new THREE.MeshStandardMaterial({ color: 0x0c0c10, roughness: 0.62, metalness: 0.28 })
+    const furMat = new THREE.MeshStandardMaterial({ color: 0x5a5a62, roughness: 0.95, metalness: 0.02 })
+    const suitMat = new THREE.MeshStandardMaterial({ color: 0x121018, roughness: 0.72, metalness: 0.18 })
+    const armorMat = new THREE.MeshStandardMaterial({ color: 0x3a3e48, roughness: 0.32, metalness: 0.82 })
     const orangeGlow = new THREE.MeshStandardMaterial({
       color: NEON_ORANGE,
       emissive: NEON_ORANGE,
@@ -704,21 +895,9 @@ export class Game {
       roughness: 0.2,
       metalness: 0.5,
     })
-    const bootMat = new THREE.MeshStandardMaterial({
-      color: 0x08080c,
-      roughness: 0.42,
-      metalness: 0.55,
-    })
-    const metalGun = new THREE.MeshStandardMaterial({
-      color: 0x1a1c22,
-      roughness: 0.35,
-      metalness: 0.9,
-    })
-    const gripGun = new THREE.MeshStandardMaterial({
-      color: 0x141210,
-      roughness: 0.78,
-      metalness: 0.12,
-    })
+    const bootMat = new THREE.MeshStandardMaterial({ color: 0x08080c, roughness: 0.42, metalness: 0.55 })
+    const metalGun = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.35, metalness: 0.9 })
+    const gripGun = new THREE.MeshStandardMaterial({ color: 0x141210, roughness: 0.78, metalness: 0.12 })
     const neonGun = new THREE.MeshStandardMaterial({
       color: NEON_ORANGE,
       emissive: NEON_ORANGE,
@@ -726,210 +905,39 @@ export class Game {
       roughness: 0.35,
       metalness: 0.45,
     })
-    const leather = new THREE.MeshStandardMaterial({
-      color: 0x1a1410,
-      roughness: 0.6,
-      metalness: 0.2,
-    })
+    const leather = new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 0.6, metalness: 0.2 })
 
-    // ── Hoofd — kort haar, blauw oog-implant rechts ──
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.068, 0.13, 8), skin)
-    neck.position.y = 1.52
-    neck.castShadow = true
+    const torsoParts: THREE.Object3D[] = [
+      this.playerPart(new THREE.CapsuleGeometry(0.19, 0.38, 8, 16), suitMat, [0, 1.22, 0]),
+      this.playerPart(new THREE.CapsuleGeometry(0.16, 0.14, 6, 12), suitMat, [0, 0.96, 0.02]),
+      this.playerPart(new THREE.BoxGeometry(0.04, 0.34, 0.03), leather, [-0.1, 1.2, 0.11], [0, 0, 0.22]),
+      this.playerPart(new THREE.BoxGeometry(0.04, 0.34, 0.03), leather, [0.1, 1.2, 0.11], [0, 0, -0.22]),
+      this.playerPart(new THREE.BoxGeometry(0.2, 0.05, 0.035), armorMat, [0, 1.18, 0.125]),
+      this.playerPart(new THREE.BoxGeometry(0.16, 0.025, 0.02), armorMat, [0, 1.24, 0.13]),
+      this.playerPart(new THREE.BoxGeometry(0.06, 0.04, 0.02), orangeGlow, [-0.06, 1.16, 0.14]),
+      this.playerPart(new THREE.BoxGeometry(0.06, 0.04, 0.02), orangeGlow, [0.06, 1.16, 0.14]),
+    ]
 
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.135, 16, 16), skin)
-    head.position.y = 1.72
-    head.scale.set(0.98, 1.06, 1)
-    head.castShadow = true
+    const swordParts: THREE.Object3D[] = [
+      this.playerPart(new THREE.CylinderGeometry(0.022, 0.028, 0.12, 8), armorMat, [-0.12, 1.35, -0.2], [0, 0, 0.4]),
+      this.playerPart(new THREE.BoxGeometry(0.14, 0.02, 0.05), armorMat, [-0.08, 1.28, -0.18], [0, 0, 0.55]),
+      this.playerPart(new THREE.BoxGeometry(0.018, 0.72, 0.035), blueGlow, [0.06, 1.05, -0.22], [0, 0, -0.65]),
+      this.playerPart(new THREE.BoxGeometry(0.008, 0.65, 0.018), new THREE.MeshStandardMaterial({
+        color: 0x88eeff,
+        emissive: 0x44ccff,
+        emissiveIntensity: 3.5,
+        roughness: 0.1,
+        metalness: 0.6,
+      }), [0.06, 1.05, -0.218], [0, 0, -0.65]),
+      this.playerPart(new THREE.BoxGeometry(0.1, 0.14, 0.06), armorMat, [-0.15, 1.15, -0.18]),
+      this.playerPart(new THREE.BoxGeometry(0.04, 0.08, 0.03), armorMat, [-0.15, 1.08, -0.17], [0.2, 0, 0.3]),
+    ]
 
-    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.065, 0.11), skinDark)
-    jaw.position.set(0, 1.63, 0.045)
-
-    // Kort cropped haar
-    const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.138, 10, 10, 0, Math.PI * 2, 0, Math.PI * 0.45), hairMat)
-    hairCap.position.y = 1.79
-    hairCap.scale.set(1, 0.55, 1.02)
-    const hairFade = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, 0.12), hairMat)
-    hairFade.position.set(0, 1.72, -0.06)
-
-    const browL = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.012, 0.025), skinDark)
-    browL.position.set(-0.055, 1.785, 0.115)
-    browL.rotation.z = 0.15
-    const browR = browL.clone()
-    browR.position.x = 0.055
-    browR.rotation.z = -0.15
-
-    // Linker oog (normaal)
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), skinDark)
-    eyeL.position.set(-0.045, 1.755, 0.12)
-    const pupilL = new THREE.Mesh(new THREE.SphereGeometry(0.009, 6, 6), new THREE.MeshStandardMaterial({ color: 0x111118 }))
-    pupilL.position.set(-0.045, 1.755, 0.132)
-
-    // Rechter cyber-oog — blauwe ring (reference)
-    const eyeRing = new THREE.Mesh(new THREE.TorusGeometry(0.032, 0.006, 8, 24), blueGlow)
-    eyeRing.position.set(0.048, 1.755, 0.118)
-    eyeRing.rotation.y = 0.15
-    const eyeCore = new THREE.Mesh(new THREE.CircleGeometry(0.022, 16), blueGlow)
-    eyeCore.position.set(0.048, 1.755, 0.125)
-    eyeCore.rotation.y = 0.15
-    const eyeScan = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.028, 0.004), blueGlow)
-    eyeScan.position.set(0.048, 1.755, 0.13)
-
-    // ── Torso — tactisch pak onder jas ──
-    const chest = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.4, 6, 12), suitMat)
-    chest.position.y = 1.22
-    chest.castShadow = true
-    const chestStrapL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.38, 0.03), leather)
-    chestStrapL.position.set(-0.1, 1.2, 0.1)
-    chestStrapL.rotation.z = 0.2
-    const chestStrapR = chestStrapL.clone()
-    chestStrapR.position.x = 0.1
-    chestStrapR.rotation.z = -0.2
-    const chestRib = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.06, 0.04), armorMat)
-    chestRib.position.set(0, 1.18, 0.12)
-
-    // Grote schouderpantser (reference)
-    const pauldronL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.2), armorMat)
-    pauldronL.position.set(-0.26, 1.46, 0.02)
-    pauldronL.castShadow = true
-    const pauldronR = pauldronL.clone()
-    pauldronR.position.x = 0.26
-    const pauldronGlowL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.015, 0.16), orangeGlow)
-    pauldronGlowL.position.set(-0.26, 1.4, 0.12)
-    const pauldronGlowR = pauldronGlowL.clone()
-    pauldronGlowR.position.x = 0.26
-
-    // Bontkraag — groot, grijs (reference)
-    const furCollarBack = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.14, 0.22), furMat)
-    furCollarBack.position.set(0, 1.52, -0.06)
-    const furCollarL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.18), furMat)
-    furCollarL.position.set(-0.2, 1.5, 0.06)
-    furCollarL.rotation.z = 0.25
-    const furCollarR = furCollarL.clone()
-    furCollarR.position.x = 0.2
-    furCollarR.rotation.z = -0.25
-
-    // Lange zwarte trenchcoat — tot enkels
-    const coatUpper = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.45, 0.28), coatMat)
-    coatUpper.position.set(0, 1.3, 0)
-    coatUpper.castShadow = true
-
-    const coatBack = new THREE.Mesh(new THREE.BoxGeometry(0.52, 1.15, 0.07), coatMat)
-    coatBack.position.set(0, 0.78, -0.15)
-    const coatPanelL = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.12, 0.24), coatMat)
-    coatPanelL.position.set(-0.24, 0.8, 0.01)
-    const coatPanelR = coatPanelL.clone()
-    coatPanelR.position.x = 0.24
-    const coatFrontL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.05, 0.05), coatMat)
-    coatFrontL.position.set(-0.13, 0.82, 0.14)
-    const coatFrontR = coatFrontL.clone()
-    coatFrontR.position.x = 0.13
-
-    const tailL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.62, 0.05), coatMat)
-    tailL.position.set(-0.11, 0.32, -0.11)
-    tailL.rotation.x = 0.06
-    const tailR = tailL.clone()
-    tailR.position.x = 0.11
-
-    // Oranje glow-naden langs jas (reference)
-    const seamL = new THREE.Mesh(new THREE.BoxGeometry(0.015, 1.05, 0.015), orangeGlow)
-    seamL.position.set(-0.25, 0.88, 0.15)
-    const seamR = seamL.clone()
-    seamR.position.x = 0.25
-    const seamBack = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.85, 0.015), orangeGlow)
-    seamBack.position.set(0, 0.92, -0.18)
-    const seamArmL = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.35, 0.015), orangeGlow)
-    seamArmL.position.set(-0.28, 1.22, 0.1)
-    const seamArmR = seamArmL.clone()
-    seamArmR.position.x = 0.28
-
-    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.07, 0.26), leather)
-    belt.position.set(0, 0.88, 0.02)
-    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.04), armorMat)
-    buckle.position.set(0, 0.88, 0.15)
-
-    // Blauw energie-zwaard op de rug (reference)
-    const swordHilt = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.05), armorMat)
-    swordHilt.position.set(-0.12, 1.35, -0.2)
-    swordHilt.rotation.z = 0.4
-    const swordGuard = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.025, 0.04), armorMat)
-    swordGuard.position.set(-0.08, 1.28, -0.18)
-    swordGuard.rotation.z = 0.55
-    const swordBlade = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.75, 0.04), blueGlow)
-    swordBlade.position.set(0.06, 1.05, -0.22)
-    swordBlade.rotation.z = -0.65
-    const swordPack = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 0.06), armorMat)
-    swordPack.position.set(-0.15, 1.15, -0.18)
-
-    // ── Benen — tactisch pak + zware boots ──
-    const thighGeo = new THREE.BoxGeometry(0.14, 0.36, 0.15)
-    thighGeo.translate(0, -0.18, 0)
-    const shinGeo = new THREE.BoxGeometry(0.12, 0.34, 0.13)
-    shinGeo.translate(0, -0.17, 0)
-
-    this.legL = new THREE.Group()
-    this.legL.position.set(-0.12, 0.88, 0)
-    const thighL = new THREE.Mesh(thighGeo, suitMat)
-    const kneeL = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.11), armorMat)
-    kneeL.position.set(0, -0.4, 0.04)
-    const shinL = new THREE.Mesh(shinGeo, suitMat)
-    shinL.position.y = -0.36
-    const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.12, 0.24), bootMat)
-    bootL.position.set(0, -0.66, 0.05)
-    const bootGlowL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 0.04), orangeGlow)
-    bootGlowL.position.set(0, -0.62, 0.16)
-    this.legL.add(thighL, kneeL, shinL, bootL, bootGlowL)
-
-    this.legR = new THREE.Group()
-    this.legR.position.set(0.12, 0.88, 0)
-    const thighR = new THREE.Mesh(thighGeo, suitMat)
-    const kneeR = kneeL.clone()
-    kneeR.position.set(0, -0.4, 0.04)
-    const shinR = new THREE.Mesh(shinGeo, suitMat)
-    shinR.position.y = -0.36
-    const bootR = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.12, 0.24), bootMat)
-    bootR.position.set(0, -0.66, 0.05)
-    const bootGlowR = bootGlowL.clone()
-    bootGlowR.position.set(0, -0.62, 0.16)
-    this.legR.add(thighR, kneeR, shinR, bootR, bootGlowR)
-    for (const leg of [this.legL, this.legR]) {
-      for (const c of leg.children) (c as THREE.Mesh).castShadow = true
-    }
-
-    // ── Armen — gepantserde handschoenen (beide armen) ──
-    const upperArmGeo = new THREE.BoxGeometry(0.11, 0.3, 0.12)
-    upperArmGeo.translate(0, -0.15, 0)
-
-    const buildGauntletArm = (side: number) => {
-      const arm = new THREE.Group()
-      arm.position.set(side * 0.27, 1.4, 0.03)
-      const upper = new THREE.Mesh(upperArmGeo, coatMat)
-      const upperArmor = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.13), armorMat)
-      upperArmor.position.y = -0.08
-      const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), armorMat)
-      elbow.position.y = -0.3
-      const gauntlet = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.26, 0.12), armorMat)
-      gauntlet.position.y = -0.46
-      const gauntletGlow = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 0.1), orangeGlow)
-      gauntletGlow.position.set(0, -0.38, 0.06)
-      const knuckle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.08), armorMat)
-      knuckle.position.set(0, -0.58, 0.03)
-      for (let f = 0; f < 4; f++) {
-        const finger = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.04, 0.016), armorMat)
-        finger.position.set(-0.024 + f * 0.016, -0.62, 0.05)
-        arm.add(finger)
-      }
-      arm.add(upper, upperArmor, elbow, gauntlet, gauntletGlow, knuckle)
-      return arm
-    }
-
-    this.armR = buildGauntletArm(1)
-    this.armL = buildGauntletArm(-1)
+    this.legL = this.buildOrganicLeg(-1, suitMat, armorMat, bootMat, orangeGlow)
+    this.legR = this.buildOrganicLeg(1, suitMat, armorMat, bootMat, orangeGlow)
+    this.armR = this.buildOrganicArm(1, coatMat, armorMat, orangeGlow)
+    this.armL = this.buildOrganicArm(-1, coatMat, armorMat, orangeGlow)
     this.armL.position.set(-0.24, 1.36, 0.16)
-
-    for (const arm of [this.armR, this.armL]) {
-      for (const c of arm.children) (c as THREE.Mesh).castShadow = true
-    }
 
     this.armR.rotation.x = -1.15
     this.armR.rotation.z = -0.08
@@ -945,16 +953,19 @@ export class Game {
     this.muzzleLight.position.set(0.1, 1.24, 0.72)
 
     this.playerBody.add(
-      neck, head, jaw, hairCap, hairFade, browL, browR,
-      eyeL, pupilL, eyeRing, eyeCore, eyeScan,
-      chest, chestStrapL, chestStrapR, chestRib,
-      pauldronL, pauldronR, pauldronGlowL, pauldronGlowR,
-      furCollarBack, furCollarL, furCollarR,
-      coatUpper, coatBack, coatPanelL, coatPanelR, coatFrontL, coatFrontR,
-      tailL, tailR, seamL, seamR, seamBack, seamArmL, seamArmR,
-      belt, buckle, swordHilt, swordGuard, swordBlade, swordPack,
-      this.legL, this.legR, this.armR, this.armL,
-      this.gun, this.muzzleLight
+      ...this.buildOrganicHead(skin, skinDark, hairMat, blueGlow),
+      ...torsoParts,
+      ...this.buildLayeredPauldron(-1, armorMat, orangeGlow),
+      ...this.buildLayeredPauldron(1, armorMat, orangeGlow),
+      ...this.buildFurCollar(furMat),
+      ...this.buildDetailedCoat(coatMat, orangeGlow, leather, armorMat),
+      ...swordParts,
+      this.legL,
+      this.legR,
+      this.armR,
+      this.armL,
+      this.gun,
+      this.muzzleLight,
     )
     this.player.add(this.playerBody)
     this.player.position.set(0, 0, 6)
