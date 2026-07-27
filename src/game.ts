@@ -4,6 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
@@ -39,6 +40,11 @@ const ENEMY_RESPAWN = 2.6
 const NEON_CYAN = 0x00f6ff
 const NEON_PINK = 0xff2d95
 const NEON_YELLOW = 0xffe14d
+const PLAYER_MODEL_URL = '/models/player.glb'
+const PLAYER_TARGET_HEIGHT = 1.78
+
+type PlayerAnim = 'idle' | 'walk' | 'run'
+
 const NEON_ORANGE = 0xff6622
 
 type Keys = { w: boolean; a: boolean; s: boolean; d: boolean; sprint: boolean }
@@ -92,16 +98,17 @@ export class Game {
   // Speler
   private player = new THREE.Group()
   private playerBody = new THREE.Group() // bob + lean
-  private legL!: THREE.Group
-  private legR!: THREE.Group
-  private armL!: THREE.Group
-  private armR!: THREE.Group
+  private playerModel!: THREE.Group
+  private playerMixer!: THREE.AnimationMixer
+  private playerAnims: Partial<Record<PlayerAnim, THREE.AnimationAction>> = {}
+  private playerAnim: PlayerAnim = 'idle'
+  private gunHolder!: THREE.Group
+  private spineBone: THREE.Bone | null = null
   private gun!: THREE.Group
   private muzzle = new THREE.Object3D()
   private muzzleLight!: THREE.PointLight
 
   private velocity = new THREE.Vector3()
-  private walkPhase = 0
   private gunKick = 0
 
   // Camera / input
@@ -148,17 +155,29 @@ export class Game {
 
     this.setupPost()
     this.buildWorld()
-    this.buildPlayer()
     this.buildEnemies()
     this.bindEvents()
     this.onResize()
-    // Camera meteen achter speler — voorkomt verkeerde looprichting in frame 1
+    void this.bootstrap()
+    window.addEventListener('resize', () => this.onResize())
+    ;(window as unknown as { __game: Game }).__game = this
+  }
+
+  private async bootstrap() {
+    this.hintEl.textContent = 'Character laden…'
+    try {
+      await this.loadPlayerModel()
+    } catch (err) {
+      console.error(err)
+      this.hintEl.textContent = 'Kon character niet laden — refresh de pagina'
+      return
+    }
+    this.hintEl.innerHTML =
+      'Klik om te spelen · <b>WASD</b> lopen · <b>Shift</b> sprinten · <b>Muis</b> mikken · <b>Klik</b> schieten'
     this.camFocus.copy(this.player.position)
     this.updateCamera(0)
-    window.addEventListener('resize', () => this.onResize())
     this.clock.start()
     this.animate()
-    ;(window as unknown as { __game: Game }).__game = this
   }
 
   private setupPost() {
@@ -596,226 +615,6 @@ export class Game {
 
   // ── Speler ──────────────────────────────────────────────────────────────
 
-  private playerPart(
-    geo: THREE.BufferGeometry,
-    mat: THREE.Material,
-    pos: [number, number, number] = [0, 0, 0],
-    rot: [number, number, number] = [0, 0, 0],
-    scale: [number, number, number] = [1, 1, 1],
-    castShadow = true,
-  ): THREE.Mesh {
-    const mesh = new THREE.Mesh(geo, mat)
-    mesh.position.set(...pos)
-    mesh.rotation.set(...rot)
-    mesh.scale.set(...scale)
-    if (castShadow) mesh.castShadow = true
-    return mesh
-  }
-
-  private buildOrganicHead(
-    skin: THREE.Material,
-    skinDark: THREE.Material,
-    hairMat: THREE.Material,
-    blueGlow: THREE.Material,
-  ): THREE.Object3D[] {
-    const parts: THREE.Object3D[] = []
-    const eyeWhite = new THREE.MeshStandardMaterial({ color: 0xe8e0d8, roughness: 0.35, metalness: 0.05 })
-    const irisMat = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.4, metalness: 0.1 })
-    const lipMat = new THREE.MeshStandardMaterial({ color: 0x4a3028, roughness: 0.55, metalness: 0.04 })
-
-    parts.push(this.playerPart(new THREE.CylinderGeometry(0.052, 0.062, 0.14, 12), skin, [0, 1.51, 0]))
-
-    const head = this.playerPart(new THREE.SphereGeometry(0.132, 24, 24), skin, [0, 1.72, 0], [0, 0, 0], [0.94, 1.08, 0.98])
-    parts.push(head)
-
-    parts.push(this.playerPart(new THREE.SphereGeometry(0.1, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), skinDark, [0, 1.64, 0.03], [0.12, 0, 0], [1.05, 0.72, 0.92]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.07, 0.028, 0.05), skinDark, [0, 1.615, 0.1], [0.35, 0, 0], [1, 0.85, 1.1]))
-
-    parts.push(this.playerPart(new THREE.SphereGeometry(0.038, 10, 10), skin, [-0.09, 1.73, 0.02], [0, 0, 0.45], [0.55, 1.1, 0.7]))
-    parts.push(this.playerPart(new THREE.SphereGeometry(0.038, 10, 10), skin, [0.09, 1.73, 0.02], [0, 0, -0.45], [0.55, 1.1, 0.7]))
-
-    parts.push(this.playerPart(new THREE.SphereGeometry(0.018, 8, 8), skinDark, [0, 1.705, 0.125], [0.2, 0, 0]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.024, 0.012, 0.018), skinDark, [0, 1.688, 0.138], [0.15, 0, 0]))
-
-    parts.push(this.playerPart(new THREE.SphereGeometry(0.028, 10, 8), lipMat, [0, 1.668, 0.118], [0.08, 0, 0], [1.2, 0.45, 0.7]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.034, 0.008, 0.012), lipMat, [0, 1.662, 0.128]))
-
-    parts.push(this.playerPart(new THREE.SphereGeometry(0.034, 10, 10, 0, Math.PI * 2, 0, Math.PI * 0.42), hairMat, [0, 1.795, -0.01], [0, 0, 0], [1.02, 0.62, 1.04]))
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2
-      parts.push(
-        this.playerPart(
-          new THREE.BoxGeometry(0.018, 0.035, 0.04),
-          hairMat,
-          [Math.cos(a) * 0.1, 1.76 + Math.sin(a) * 0.02, Math.sin(a) * 0.08 - 0.04],
-          [0.1, a * 0.15, 0.08],
-        ),
-      )
-    }
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.12, 0.045, 0.1), hairMat, [0, 1.715, -0.075], [0.1, 0, 0]))
-
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.062, 0.014, 0.022), skinDark, [-0.052, 1.788, 0.112], [0, 0, 0.18]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.062, 0.014, 0.022), skinDark, [0.052, 1.788, 0.112], [0, 0, -0.18]))
-
-    parts.push(this.playerPart(new THREE.SphereGeometry(0.016, 10, 10), eyeWhite, [-0.044, 1.756, 0.118], [0, 0, 0], [1.1, 0.75, 0.55]))
-    parts.push(this.playerPart(new THREE.SphereGeometry(0.009, 8, 8), irisMat, [-0.044, 1.756, 0.128]))
-    parts.push(this.playerPart(new THREE.SphereGeometry(0.004, 6, 6), new THREE.MeshStandardMaterial({ color: 0x050508 }), [-0.044, 1.756, 0.134]))
-
-    const eyeSocket = this.playerPart(new THREE.SphereGeometry(0.028, 12, 12), skinDark, [0.05, 1.754, 0.108], [0, 0.15, 0], [1.1, 0.85, 0.75])
-    parts.push(eyeSocket)
-    parts.push(this.playerPart(new THREE.TorusGeometry(0.034, 0.005, 10, 28), blueGlow, [0.05, 1.756, 0.12], [0, 0.15, 0]))
-    parts.push(this.playerPart(new THREE.CircleGeometry(0.024, 20), blueGlow, [0.05, 1.756, 0.127], [0, 0.15, 0]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.003, 0.032, 0.003), blueGlow, [0.05, 1.756, 0.132], [0, 0.15, 0]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.055, 0.004, 0.004), blueGlow, [0.05, 1.772, 0.115], [0, 0.15, 0.1]))
-
-    parts.push(this.playerPart(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 8), blueGlow, [0.082, 1.748, 0.04], [0, 0, -0.7]))
-    parts.push(this.playerPart(new THREE.SphereGeometry(0.014, 8, 8), blueGlow, [0.098, 1.742, 0.018]))
-
-    return parts
-  }
-
-  private buildFurCollar(furMat: THREE.Material): THREE.Object3D[] {
-    const parts: THREE.Object3D[] = []
-    for (let i = 0; i < 16; i++) {
-      const t = i / 16
-      const angle = -Math.PI * 0.75 + t * Math.PI * 1.5
-      const r = 0.2 + Math.sin(t * Math.PI) * 0.04
-      const jitter = Math.sin(i * 2.17) * 0.012
-      parts.push(
-        this.playerPart(
-          new THREE.SphereGeometry(0.032 + (i % 3) * 0.004, 8, 8),
-          furMat,
-          [Math.cos(angle) * r, 1.52 + Math.sin(t * Math.PI) * 0.04 + jitter, Math.sin(angle) * 0.12 - 0.02],
-          [Math.sin(i * 1.3) * 0.25, angle, Math.cos(i * 0.9) * 0.2],
-          [1 + (i % 4) * 0.08, 0.85 + (i % 3) * 0.1, 1 + (i % 2) * 0.15],
-        ),
-      )
-    }
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.42, 0.12, 0.18), furMat, [0, 1.505, -0.07], [0.08, 0, 0]))
-    return parts
-  }
-
-  private buildLayeredPauldron(side: number, armorMat: THREE.Material, orangeGlow: THREE.Material): THREE.Object3D[] {
-    const x = side * 0.27
-    return [
-      this.playerPart(new THREE.BoxGeometry(0.16, 0.08, 0.18), armorMat, [x, 1.48, -0.02], [0.15, 0, side * -0.25]),
-      this.playerPart(new THREE.BoxGeometry(0.14, 0.06, 0.16), armorMat, [x, 1.54, 0.04], [-0.2, 0, side * -0.15], [1, 1, 1]),
-      this.playerPart(new THREE.CylinderGeometry(0.012, 0.012, 0.018, 6), armorMat, [x - side * 0.05, 1.5, 0.1], [Math.PI / 2, 0, 0]),
-      this.playerPart(new THREE.CylinderGeometry(0.012, 0.012, 0.018, 6), armorMat, [x + side * 0.05, 1.46, 0.08], [Math.PI / 2, 0, 0]),
-      this.playerPart(new THREE.BoxGeometry(0.12, 0.012, 0.14), orangeGlow, [x, 1.42, 0.12], [0.1, 0, side * -0.1]),
-      this.playerPart(new THREE.BoxGeometry(0.04, 0.04, 0.04), armorMat, [x, 1.56, 0.1], [0.4, 0.45, 0]),
-    ]
-  }
-
-  private buildDetailedCoat(
-    coatMat: THREE.Material,
-    orangeGlow: THREE.Material,
-    leather: THREE.Material,
-    armorMat: THREE.Material,
-  ): THREE.Object3D[] {
-    const parts: THREE.Object3D[] = []
-    const lining = new THREE.MeshStandardMaterial({ color: 0x18141c, roughness: 0.75, metalness: 0.12 })
-
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.48, 0.42, 0.26), coatMat, [0, 1.3, 0]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.46, 1.12, 0.06), coatMat, [0, 0.78, -0.16]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.04, 1.08, 0.22), coatMat, [-0.22, 0.8, 0]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.04, 1.08, 0.22), coatMat, [0.22, 0.8, 0]))
-
-    for (let i = 0; i < 5; i++) {
-      const y = 0.35 + i * 0.18
-      const flare = 0.22 + i * 0.018
-      parts.push(this.playerPart(new THREE.BoxGeometry(flare, 0.16, 0.04), coatMat, [-0.1, y, -0.12 - i * 0.01], [0.05 + i * 0.02, 0.08, 0]))
-      parts.push(this.playerPart(new THREE.BoxGeometry(flare, 0.16, 0.04), coatMat, [0.1, y, -0.12 - i * 0.01], [0.05 + i * 0.02, -0.08, 0]))
-    }
-
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.2, 0.55, 0.045), coatMat, [-0.14, 0.95, 0.145], [0, 0.25, 0]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.2, 0.55, 0.045), coatMat, [0.14, 0.95, 0.145], [0, -0.25, 0]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.08, 0.45, 0.03), lining, [-0.04, 0.98, 0.135], [0, 0.12, 0]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.08, 0.45, 0.03), lining, [0.04, 0.98, 0.135], [0, -0.12, 0]))
-
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.06, 0.12, 0.04), coatMat, [-0.18, 1.05, 0.12], [0, 0, 0.15]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.06, 0.12, 0.04), coatMat, [0.18, 1.05, 0.12], [0, 0, -0.15]))
-
-    const seamPositions: [number, number, number][] = [
-      [-0.24, 0.88, 0.155],
-      [0.24, 0.88, 0.155],
-      [0, 0.92, -0.185],
-      [-0.29, 1.22, 0.1],
-      [0.29, 1.22, 0.1],
-    ]
-    for (const p of seamPositions) {
-      parts.push(this.playerPart(new THREE.BoxGeometry(0.012, 1.02, 0.012), orangeGlow, p))
-    }
-
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.42, 0.065, 0.24), leather, [0, 0.88, 0.02]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.11, 0.055, 0.035), armorMat, [0, 0.88, 0.155]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.035, 0.04, 0.02), leather, [-0.16, 0.88, 0.14]))
-    parts.push(this.playerPart(new THREE.BoxGeometry(0.035, 0.04, 0.02), leather, [0.16, 0.88, 0.14]))
-
-    return parts
-  }
-
-  private buildOrganicLeg(
-    side: number,
-    suitMat: THREE.Material,
-    armorMat: THREE.Material,
-    bootMat: THREE.Material,
-    orangeGlow: THREE.Material,
-  ): THREE.Group {
-    const leg = new THREE.Group()
-    leg.position.set(side * 0.12, 0.88, 0)
-
-    const thigh = this.playerPart(new THREE.CapsuleGeometry(0.068, 0.26, 6, 14), suitMat, [0, -0.2, 0.01])
-    const thighPlate = this.playerPart(new THREE.BoxGeometry(0.1, 0.18, 0.06), armorMat, [0, -0.16, 0.06], [0.08, 0, 0])
-    const knee = this.playerPart(new THREE.SphereGeometry(0.058, 12, 12), armorMat, [0, -0.4, 0.05], [0, 0, 0], [1.1, 0.85, 1])
-    const kneeCap = this.playerPart(new THREE.BoxGeometry(0.08, 0.06, 0.05), armorMat, [0, -0.4, 0.1])
-    const shin = this.playerPart(new THREE.CapsuleGeometry(0.055, 0.24, 6, 14), suitMat, [0, -0.58, -0.01])
-    const shinGuard = this.playerPart(new THREE.BoxGeometry(0.08, 0.22, 0.05), armorMat, [0, -0.56, 0.06], [0.06, 0, 0])
-    const bootUpper = this.playerPart(new THREE.CylinderGeometry(0.062, 0.07, 0.1, 10), bootMat, [0, -0.74, 0.03])
-    const bootBody = this.playerPart(new THREE.BoxGeometry(0.12, 0.1, 0.26), bootMat, [0, -0.8, 0.06], [0.08, 0, 0], [1, 1, 1.05])
-    const bootToe = this.playerPart(new THREE.SphereGeometry(0.06, 10, 10), bootMat, [0, -0.82, 0.18], [0.4, 0, 0], [1.1, 0.7, 1.3])
-    const bootSole = this.playerPart(new THREE.BoxGeometry(0.13, 0.025, 0.28), new THREE.MeshStandardMaterial({ color: 0x040408, roughness: 0.9, metalness: 0.2 }), [0, -0.86, 0.08])
-    const bootStrap = this.playerPart(new THREE.BoxGeometry(0.11, 0.018, 0.02), orangeGlow, [0, -0.76, 0.14])
-    const bootGlow = this.playerPart(new THREE.BoxGeometry(0.08, 0.018, 0.035), orangeGlow, [0, -0.62, 0.165])
-
-    leg.add(thigh, thighPlate, knee, kneeCap, shin, shinGuard, bootUpper, bootBody, bootToe, bootSole, bootStrap, bootGlow)
-    return leg
-  }
-
-  private buildOrganicArm(
-    side: number,
-    coatMat: THREE.Material,
-    armorMat: THREE.Material,
-    orangeGlow: THREE.Material,
-  ): THREE.Group {
-    const arm = new THREE.Group()
-    arm.position.set(side * 0.27, 1.4, 0.03)
-
-    const upper = this.playerPart(new THREE.CapsuleGeometry(0.052, 0.24, 6, 12), coatMat, [0, -0.14, 0])
-    const upperPlate = this.playerPart(new THREE.BoxGeometry(0.1, 0.16, 0.1), armorMat, [0, -0.1, 0.04], [0.1, 0, side * -0.1])
-    const elbow = this.playerPart(new THREE.SphereGeometry(0.048, 12, 12), armorMat, [0, -0.3, 0.02], [0, 0, 0], [1.15, 1, 1.1])
-    const forearm = this.playerPart(new THREE.CapsuleGeometry(0.044, 0.2, 6, 12), coatMat, [0, -0.48, 0.02])
-    const forearmPlate = this.playerPart(new THREE.BoxGeometry(0.08, 0.18, 0.08), armorMat, [0, -0.46, 0.05])
-
-    const hand = new THREE.Group()
-    hand.position.set(0, -0.6, 0.04)
-    hand.add(this.playerPart(new THREE.BoxGeometry(0.07, 0.05, 0.08), armorMat, [0, 0, 0], [0, 0, 0], [1, 0.9, 1.1]))
-
-    const fingerSpread = [-0.024, -0.008, 0.008, 0.024]
-    for (let f = 0; f < 4; f++) {
-      const fx = fingerSpread[f]
-      hand.add(this.playerPart(new THREE.CapsuleGeometry(0.008, 0.018, 4, 6), armorMat, [fx, -0.028, 0.03], [0.15, 0, 0]))
-      hand.add(this.playerPart(new THREE.CapsuleGeometry(0.007, 0.014, 4, 6), armorMat, [fx, -0.048, 0.038], [0.25, 0, 0]))
-      hand.add(this.playerPart(new THREE.CapsuleGeometry(0.006, 0.012, 4, 6), armorMat, [fx, -0.064, 0.042], [0.35, 0, 0]))
-    }
-    hand.add(this.playerPart(new THREE.CapsuleGeometry(0.009, 0.02, 4, 6), armorMat, [-0.038, -0.02, 0.02], [0, 0, -0.6]))
-    hand.add(this.playerPart(new THREE.CapsuleGeometry(0.008, 0.016, 4, 6), armorMat, [-0.044, -0.038, 0.028], [0, 0, -0.5]))
-
-    const gauntletGlow = this.playerPart(new THREE.BoxGeometry(0.075, 0.015, 0.09), orangeGlow, [0, -0.52, 0.06])
-    arm.add(upper, upperPlate, elbow, forearm, forearmPlate, gauntletGlow, hand)
-    return arm
-  }
-
   private buildUzi(metal: THREE.Material, gripMat: THREE.Material, neon: THREE.Material) {
     const uzi = new THREE.Group()
 
@@ -873,104 +672,119 @@ export class Game {
     return uzi
   }
 
-  private buildPlayer() {
-    const skin = new THREE.MeshStandardMaterial({ color: 0x3d2e28, roughness: 0.58, metalness: 0.06 })
-    const skinDark = new THREE.MeshStandardMaterial({ color: 0x2a1e1a, roughness: 0.62, metalness: 0.05 })
-    const hairMat = new THREE.MeshStandardMaterial({ color: 0x0a0808, roughness: 0.9, metalness: 0.05 })
-    const coatMat = new THREE.MeshStandardMaterial({ color: 0x0c0c10, roughness: 0.62, metalness: 0.28 })
-    const furMat = new THREE.MeshStandardMaterial({ color: 0x5a5a62, roughness: 0.95, metalness: 0.02 })
-    const suitMat = new THREE.MeshStandardMaterial({ color: 0x121018, roughness: 0.72, metalness: 0.18 })
-    const armorMat = new THREE.MeshStandardMaterial({ color: 0x3a3e48, roughness: 0.32, metalness: 0.82 })
-    const orangeGlow = new THREE.MeshStandardMaterial({
-      color: NEON_ORANGE,
-      emissive: NEON_ORANGE,
-      emissiveIntensity: 1.35,
-      roughness: 0.3,
-      metalness: 0.4,
+  private findBone(root: THREE.Object3D, pattern: RegExp): THREE.Bone | null {
+    let found: THREE.Bone | null = null
+    root.traverse((obj) => {
+      if (found || !(obj as THREE.Bone).isBone) return
+      if (pattern.test(obj.name)) found = obj as THREE.Bone
     })
-    const blueGlow = new THREE.MeshStandardMaterial({
-      color: 0x44ccff,
-      emissive: 0x2288ff,
-      emissiveIntensity: 2.2,
-      roughness: 0.2,
-      metalness: 0.5,
+    return found
+  }
+
+  private fadePlayerAnim(next: PlayerAnim, duration = 0.22) {
+    if (this.playerAnim === next) return
+    const from = this.playerAnims[this.playerAnim]
+    const to = this.playerAnims[next]
+    if (!to) return
+    if (from) from.fadeOut(duration)
+    to.reset().setEffectiveWeight(1).fadeIn(duration).play()
+    this.playerAnim = next
+  }
+
+  private loadPlayerModel(): Promise<void> {
+    const loader = new GLTFLoader()
+    return new Promise((resolve, reject) => {
+      loader.load(
+        PLAYER_MODEL_URL,
+        (gltf) => {
+          this.playerModel = gltf.scene
+
+          // Schaal zodat voeten op grond staan op ~1.78m lengte
+          const bounds = new THREE.Box3().setFromObject(this.playerModel)
+          const size = bounds.getSize(new THREE.Vector3())
+          const scale = PLAYER_TARGET_HEIGHT / size.y
+          this.playerModel.scale.setScalar(scale)
+          bounds.setFromObject(this.playerModel)
+          this.playerModel.position.y = -bounds.min.y
+          this.playerModel.position.x -= (bounds.min.x + bounds.max.x) * 0.5
+          this.playerModel.position.z -= (bounds.min.z + bounds.max.z) * 0.5
+
+          // Mixamo Soldier kijkt standaard de verkeerde kant op voor onze +Z forward
+          this.playerModel.rotation.y = Math.PI
+
+          this.playerModel.traverse((obj) => {
+            if (!(obj as THREE.Mesh).isMesh) return
+            const mesh = obj as THREE.Mesh
+            mesh.castShadow = true
+            mesh.receiveShadow = true
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+            for (const mat of mats) {
+              if (!(mat instanceof THREE.MeshStandardMaterial)) continue
+              mat.roughness = Math.min(mat.roughness + 0.08, 0.72)
+              mat.metalness = Math.max(mat.metalness, 0.18)
+              mat.envMapIntensity = 0.85
+            }
+          })
+
+          this.playerBody.add(this.playerModel)
+          this.player.add(this.playerBody)
+          this.player.position.set(0, 0, 6)
+          this.scene.add(this.player)
+
+          this.playerMixer = new THREE.AnimationMixer(this.playerModel)
+          const clipByName = (name: string) => gltf.animations.find((c) => c.name === name)
+          const idleClip = clipByName('Idle') ?? gltf.animations[0]
+          const walkClip = clipByName('Walk') ?? gltf.animations[3] ?? gltf.animations[1]
+          const runClip = clipByName('Run') ?? gltf.animations[1] ?? gltf.animations[2]
+
+          if (idleClip) {
+            this.playerAnims.idle = this.playerMixer.clipAction(idleClip)
+            this.playerAnims.idle.play()
+          }
+          if (walkClip) this.playerAnims.walk = this.playerMixer.clipAction(walkClip)
+          if (runClip) this.playerAnims.run = this.playerMixer.clipAction(runClip)
+
+          this.spineBone = this.findBone(this.playerModel, /Spine2|spine_02|mixamorigSpine2/i)
+
+          const rightHand =
+            this.findBone(this.playerModel, /RightHand|mixamorigRightHand/i) ??
+            this.findBone(this.playerModel, /Hand\.R|hand_r/i)
+
+          const metalGun = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.35, metalness: 0.9 })
+          const gripGun = new THREE.MeshStandardMaterial({ color: 0x141210, roughness: 0.78, metalness: 0.12 })
+          const neonGun = new THREE.MeshStandardMaterial({
+            color: NEON_ORANGE,
+            emissive: NEON_ORANGE,
+            emissiveIntensity: 0.9,
+            roughness: 0.35,
+            metalness: 0.45,
+          })
+
+          this.gun = this.buildUzi(metalGun, gripGun, neonGun)
+          this.gun.scale.setScalar(1.15)
+
+          this.gunHolder = new THREE.Group()
+          this.gunHolder.position.set(0.02, 0.1, 0.04)
+          this.gunHolder.rotation.set(-1.35, 0.08, 0.05)
+          this.gunHolder.add(this.gun)
+
+          if (rightHand) {
+            rightHand.add(this.gunHolder)
+          } else {
+            this.playerBody.add(this.gunHolder)
+            this.gunHolder.position.set(0.34, 1.18, 0.28)
+          }
+
+          this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
+          this.gun.add(this.muzzleLight)
+          this.muzzleLight.position.set(0, 0.02, 0.42)
+
+          resolve()
+        },
+        undefined,
+        reject,
+      )
     })
-    const bootMat = new THREE.MeshStandardMaterial({ color: 0x08080c, roughness: 0.42, metalness: 0.55 })
-    const metalGun = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.35, metalness: 0.9 })
-    const gripGun = new THREE.MeshStandardMaterial({ color: 0x141210, roughness: 0.78, metalness: 0.12 })
-    const neonGun = new THREE.MeshStandardMaterial({
-      color: NEON_ORANGE,
-      emissive: NEON_ORANGE,
-      emissiveIntensity: 0.9,
-      roughness: 0.35,
-      metalness: 0.45,
-    })
-    const leather = new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 0.6, metalness: 0.2 })
-
-    const torsoParts: THREE.Object3D[] = [
-      this.playerPart(new THREE.CapsuleGeometry(0.19, 0.38, 8, 16), suitMat, [0, 1.22, 0]),
-      this.playerPart(new THREE.CapsuleGeometry(0.16, 0.14, 6, 12), suitMat, [0, 0.96, 0.02]),
-      this.playerPart(new THREE.BoxGeometry(0.04, 0.34, 0.03), leather, [-0.1, 1.2, 0.11], [0, 0, 0.22]),
-      this.playerPart(new THREE.BoxGeometry(0.04, 0.34, 0.03), leather, [0.1, 1.2, 0.11], [0, 0, -0.22]),
-      this.playerPart(new THREE.BoxGeometry(0.2, 0.05, 0.035), armorMat, [0, 1.18, 0.125]),
-      this.playerPart(new THREE.BoxGeometry(0.16, 0.025, 0.02), armorMat, [0, 1.24, 0.13]),
-      this.playerPart(new THREE.BoxGeometry(0.06, 0.04, 0.02), orangeGlow, [-0.06, 1.16, 0.14]),
-      this.playerPart(new THREE.BoxGeometry(0.06, 0.04, 0.02), orangeGlow, [0.06, 1.16, 0.14]),
-    ]
-
-    const swordParts: THREE.Object3D[] = [
-      this.playerPart(new THREE.CylinderGeometry(0.022, 0.028, 0.12, 8), armorMat, [-0.12, 1.35, -0.2], [0, 0, 0.4]),
-      this.playerPart(new THREE.BoxGeometry(0.14, 0.02, 0.05), armorMat, [-0.08, 1.28, -0.18], [0, 0, 0.55]),
-      this.playerPart(new THREE.BoxGeometry(0.018, 0.72, 0.035), blueGlow, [0.06, 1.05, -0.22], [0, 0, -0.65]),
-      this.playerPart(new THREE.BoxGeometry(0.008, 0.65, 0.018), new THREE.MeshStandardMaterial({
-        color: 0x88eeff,
-        emissive: 0x44ccff,
-        emissiveIntensity: 3.5,
-        roughness: 0.1,
-        metalness: 0.6,
-      }), [0.06, 1.05, -0.218], [0, 0, -0.65]),
-      this.playerPart(new THREE.BoxGeometry(0.1, 0.14, 0.06), armorMat, [-0.15, 1.15, -0.18]),
-      this.playerPart(new THREE.BoxGeometry(0.04, 0.08, 0.03), armorMat, [-0.15, 1.08, -0.17], [0.2, 0, 0.3]),
-    ]
-
-    this.legL = this.buildOrganicLeg(-1, suitMat, armorMat, bootMat, orangeGlow)
-    this.legR = this.buildOrganicLeg(1, suitMat, armorMat, bootMat, orangeGlow)
-    this.armR = this.buildOrganicArm(1, coatMat, armorMat, orangeGlow)
-    this.armL = this.buildOrganicArm(-1, coatMat, armorMat, orangeGlow)
-    this.armL.position.set(-0.24, 1.36, 0.16)
-
-    this.armR.rotation.x = -1.15
-    this.armR.rotation.z = -0.08
-    this.armL.rotation.x = -1.05
-    this.armL.rotation.z = 0.35
-    this.armL.rotation.y = 0.15
-
-    this.gun = this.buildUzi(metalGun, gripGun, neonGun)
-    this.gun.position.set(0.1, 1.22, 0.38)
-    this.gun.rotation.y = -0.04
-
-    this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
-    this.muzzleLight.position.set(0.1, 1.24, 0.72)
-
-    this.playerBody.add(
-      ...this.buildOrganicHead(skin, skinDark, hairMat, blueGlow),
-      ...torsoParts,
-      ...this.buildLayeredPauldron(-1, armorMat, orangeGlow),
-      ...this.buildLayeredPauldron(1, armorMat, orangeGlow),
-      ...this.buildFurCollar(furMat),
-      ...this.buildDetailedCoat(coatMat, orangeGlow, leather, armorMat),
-      ...swordParts,
-      this.legL,
-      this.legR,
-      this.armR,
-      this.armL,
-      this.gun,
-      this.muzzleLight,
-    )
-    this.player.add(this.playerBody)
-    this.player.position.set(0, 0, 6)
-    this.scene.add(this.player)
-    this.camFocus.copy(this.player.position)
   }
 
   // ── Vijanden ────────────────────────────────────────────────────────────
@@ -1216,6 +1030,8 @@ export class Game {
   // ── Beweging & camera ───────────────────────────────────────────────────
 
   private updatePlayer(dt: number) {
+    if (!this.playerMixer) return
+
     const forward = new THREE.Vector3(Math.sin(this.aimYaw), 0, Math.cos(this.aimYaw))
     const right = new THREE.Vector3(Math.cos(this.aimYaw), 0, -Math.sin(this.aimYaw))
 
@@ -1248,13 +1064,22 @@ export class Game {
 
     const speed = this.velocity.length()
     const speedRatio = speed / SPRINT_SPEED
+    const moving = speed > 0.12
 
-    // Loopcyclus: benen zwaaien, lichte body-bob
-    this.walkPhase += speed * dt * 2.4
-    const swing = Math.sin(this.walkPhase) * Math.min(speedRatio * 1.6, 0.85)
-    this.legL.rotation.x = swing
-    this.legR.rotation.x = -swing
-    this.playerBody.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.055 * Math.min(speedRatio * 2, 1)
+    if (moving && this.keys.sprint && this.keys.w) {
+      this.fadePlayerAnim('run')
+      this.playerMixer.timeScale = THREE.MathUtils.lerp(0.95, 1.2, speedRatio)
+    } else if (moving) {
+      this.fadePlayerAnim('walk')
+      this.playerMixer.timeScale = THREE.MathUtils.lerp(0.85, 1.05, speedRatio)
+    } else {
+      this.fadePlayerAnim('idle')
+      this.playerMixer.timeScale = 1
+    }
+
+    this.playerMixer.update(dt)
+
+    this.playerBody.position.y = Math.abs(Math.sin(this.clock.elapsedTime * (6 + speedRatio * 4))) * 0.028 * Math.min(speedRatio * 2, 1)
 
     // In de bocht/strafe leunen — voelt vloeiend en dynamisch
     const localVel = this.velocity.clone().applyAxisAngle(
@@ -1265,13 +1090,20 @@ export class Game {
     this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 10, dt)
     this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, targetLeanX, 10, dt)
 
-    // Wapen + armen volgen pitch / recoil (tweehands Uzi)
+    // Wapen volgt pitch / recoil via hand-bone attachment
     this.gunKick = Math.max(0, this.gunKick - dt * 6)
-    const pitchAim = this.aimPitch * 0.45 + this.gunKick * 0.45
-    this.armR.rotation.x = -1.15 - pitchAim
-    this.armL.rotation.x = -1.05 - this.aimPitch * 0.38 - this.gunKick * 0.25
-    this.gun.rotation.x = -this.aimPitch * 0.52 - this.gunKick * 0.68
-    this.gun.position.z = 0.38 - this.gunKick * 0.09
+    if (this.gunHolder) {
+      this.gunHolder.rotation.x = -1.35 - this.aimPitch * 0.55 - this.gunKick * 0.35
+      this.gun.rotation.x = -this.gunKick * 0.45
+    }
+    if (this.spineBone) {
+      this.spineBone.rotation.x = THREE.MathUtils.damp(
+        this.spineBone.rotation.x,
+        this.aimPitch * 0.22,
+        12,
+        dt,
+      )
+    }
 
     this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 260)
   }
