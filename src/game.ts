@@ -138,12 +138,12 @@ export class Game {
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 0.95
+    this.renderer.toneMappingExposure = 1.38
     container.appendChild(this.renderer.domElement)
 
     const pmrem = new THREE.PMREMGenerator(this.renderer)
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
-    this.scene.environmentIntensity = 0.1
+    this.scene.environmentIntensity = 0.28
 
     this.setupPost()
     this.buildWorld()
@@ -163,7 +163,7 @@ export class Game {
   private setupPost() {
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.5, 0.72)
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.48, 0.48, 0.82)
     this.composer.addPass(this.bloom)
     this.composer.addPass(new OutputPass())
   }
@@ -171,13 +171,15 @@ export class Game {
   // ── Wereld ──────────────────────────────────────────────────────────────
 
   private buildWorld() {
-    this.scene.background = new THREE.Color(0x05030d)
-    this.scene.fog = new THREE.FogExp2(0x0d0618, 0.026)
+    this.scene.background = new THREE.Color(0x141024)
+    this.scene.fog = new THREE.FogExp2(0x221636, 0.014)
 
-    const hemi = new THREE.HemisphereLight(0x3a5bbf, 0x14020c, 0.5)
+    this.scene.add(new THREE.AmbientLight(0x665577, 0.42))
+
+    const hemi = new THREE.HemisphereLight(0x8aadff, 0x281018, 0.82)
     this.scene.add(hemi)
 
-    const moon = new THREE.DirectionalLight(0x8fa0ff, 0.5)
+    const moon = new THREE.DirectionalLight(0xb8c4ff, 0.78)
     moon.position.set(-14, 26, -10)
     moon.castShadow = true
     moon.shadow.mapSize.set(2048, 2048)
@@ -189,11 +191,15 @@ export class Game {
     moon.shadow.camera.bottom = -34
     this.scene.add(moon)
 
-    // Natte weg — laag ruw + env-reflectie geeft de "regen op asfalt" look
+    const fill = new THREE.DirectionalLight(0xff88cc, 0.22)
+    fill.position.set(8, 10, 14)
+    this.scene.add(fill)
+
+    // Natte weg — iets lichter zodat neon reflecties zichtbaar blijven
     const roadMat = new THREE.MeshStandardMaterial({
-      color: 0x0a0810,
-      roughness: 0.42,
-      metalness: 0.45,
+      color: 0x18141f,
+      roughness: 0.38,
+      metalness: 0.42,
     })
     const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_WIDTH, STREET_LENGTH), roadMat)
     road.rotation.x = -Math.PI / 2
@@ -216,9 +222,9 @@ export class Game {
 
     // Stoepen met neon-stoepranden
     const walkMat = new THREE.MeshStandardMaterial({
-      color: 0x16121f,
-      roughness: 0.6,
-      metalness: 0.25,
+      color: 0x221c2a,
+      roughness: 0.55,
+      metalness: 0.22,
     })
     for (const side of [-1, 1]) {
       const walk = new THREE.Mesh(
@@ -243,9 +249,9 @@ export class Game {
 
     // Gebouwen
     const wallMat = new THREE.MeshStandardMaterial({
-      color: 0x191225,
-      roughness: 0.82,
-      metalness: 0.18,
+      color: 0x2a2436,
+      roughness: 0.78,
+      metalness: 0.16,
     })
     const buildingDepth = 6
     const buildingX = HALF_ROAD + SIDEWALK_W + buildingDepth / 2
@@ -271,7 +277,7 @@ export class Game {
     const glowTex = this.makeGlowTexture()
     lights.forEach(([x, y, z], i) => {
       const color = i % 2 ? NEON_PINK : NEON_CYAN
-      const light = new THREE.PointLight(color, 14, 20, 2)
+      const light = new THREE.PointLight(color, 20, 24, 1.8)
       light.position.set(x, y, z)
       this.scene.add(light)
 
@@ -401,8 +407,8 @@ export class Game {
         dummy.updateMatrix()
         windowMesh.setMatrixAt(idx, dummy.matrix)
         const lit = Math.random() > 0.35
-        color.set(lit ? palette[Math.floor(Math.random() * palette.length)] : 0x080810)
-        if (lit) color.multiplyScalar(0.55 + Math.random() * 0.45)
+        color.set(lit ? palette[Math.floor(Math.random() * palette.length)] : 0x18141f)
+        if (lit) color.multiplyScalar(0.75 + Math.random() * 0.45)
         windowMesh.setColorAt(idx, color)
         idx++
       }
@@ -445,114 +451,268 @@ export class Game {
 
   // ── Speler ──────────────────────────────────────────────────────────────
 
+  private buildUzi(metal: THREE.Material, gripMat: THREE.Material, neon: THREE.Material) {
+    const uzi = new THREE.Group()
+
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.11, 0.28), metal)
+    receiver.position.set(0, 0, 0.02)
+    uzi.add(receiver)
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.2, 10), metal)
+    barrel.rotation.x = Math.PI / 2
+    barrel.position.set(0, 0.02, 0.28)
+    uzi.add(barrel)
+    const comp = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.034, 0.04), metal)
+    comp.position.set(0, 0.02, 0.38)
+    uzi.add(comp)
+
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.14, 0.055), gripMat)
+    mag.position.set(0, -0.1, -0.02)
+    mag.rotation.x = 0.22
+    uzi.add(mag)
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.11, 0.05), gripMat)
+    grip.position.set(0, -0.1, -0.1)
+    grip.rotation.x = 0.35
+    uzi.add(grip)
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.07, 0.16), metal)
+    stock.position.set(0, 0.01, -0.18)
+    uzi.add(stock)
+    const stockWireL = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.05, 0.12), metal)
+    stockWireL.position.set(-0.018, -0.02, -0.14)
+    stockWireL.rotation.z = 0.25
+    uzi.add(stockWireL)
+    const stockWireR = stockWireL.clone()
+    stockWireR.position.x = 0.018
+    stockWireR.rotation.z = -0.25
+    uzi.add(stockWireR)
+
+    const cover = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.025, 0.22), metal)
+    cover.position.set(0, 0.065, 0.02)
+    uzi.add(cover)
+    const charge = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.012, 0.03), metal)
+    charge.position.set(0.03, 0.07, 0.06)
+    uzi.add(charge)
+
+    const cell = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.018, 0.1), neon)
+    cell.position.set(0, -0.01, 0.04)
+    uzi.add(cell)
+
+    const foregrip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.07, 0.04), gripMat)
+    foregrip.position.set(0, -0.05, 0.14)
+    uzi.add(foregrip)
+
+    this.muzzle.position.set(0, 0.02, 0.42)
+    uzi.add(this.muzzle)
+    return uzi
+  }
+
   private buildPlayer() {
-    const coatMat = new THREE.MeshStandardMaterial({
-      color: 0x1c2438,
-      roughness: 0.5,
-      metalness: 0.4,
+    const skin = new THREE.MeshStandardMaterial({
+      color: 0xc9a088,
+      roughness: 0.62,
+      metalness: 0.08,
     })
-    const skinMat = new THREE.MeshStandardMaterial({
-      color: 0x2e3950,
-      roughness: 0.55,
-      metalness: 0.3,
+    const skinDark = new THREE.MeshStandardMaterial({
+      color: 0x9a7560,
+      roughness: 0.65,
+      metalness: 0.06,
     })
-    const cyanGlow = new THREE.MeshStandardMaterial({
-      color: NEON_CYAN,
-      emissive: NEON_CYAN,
-      emissiveIntensity: 1.6,
-      roughness: 0.3,
-      metalness: 0.4,
+    const hairMat = new THREE.MeshStandardMaterial({
+      color: 0x120818,
+      roughness: 0.85,
+      metalness: 0.1,
     })
-    const pinkGlow = new THREE.MeshStandardMaterial({
+    const jacketMat = new THREE.MeshStandardMaterial({
+      color: 0x1e1828,
+      roughness: 0.48,
+      metalness: 0.35,
+    })
+    const jacketTrim = new THREE.MeshStandardMaterial({
       color: NEON_PINK,
       emissive: NEON_PINK,
+      emissiveIntensity: 1.2,
+      roughness: 0.35,
+      metalness: 0.3,
+    })
+    const pantsMat = new THREE.MeshStandardMaterial({
+      color: 0x14101a,
+      roughness: 0.7,
+      metalness: 0.15,
+    })
+    const bootMat = new THREE.MeshStandardMaterial({
+      color: 0x0a080e,
+      roughness: 0.45,
+      metalness: 0.5,
+    })
+    const cyberMat = new THREE.MeshStandardMaterial({
+      color: NEON_CYAN,
+      emissive: NEON_CYAN,
+      emissiveIntensity: 1.8,
+      roughness: 0.25,
+      metalness: 0.55,
+    })
+    const visorMat = new THREE.MeshStandardMaterial({
+      color: 0x66eeff,
+      emissive: 0x2288aa,
+      emissiveIntensity: 0.9,
+      roughness: 0.15,
+      metalness: 0.6,
+      transparent: true,
+      opacity: 0.92,
+    })
+    const metalGun = new THREE.MeshStandardMaterial({
+      color: 0x2a2e36,
+      roughness: 0.28,
+      metalness: 0.88,
+    })
+    const gripGun = new THREE.MeshStandardMaterial({
+      color: 0x1a1410,
+      roughness: 0.75,
+      metalness: 0.15,
+    })
+    const neonGun = new THREE.MeshStandardMaterial({
+      color: NEON_CYAN,
+      emissive: NEON_CYAN,
       emissiveIntensity: 1.4,
       roughness: 0.3,
       metalness: 0.4,
     })
 
-    // Torso + lange mafia-jas
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.33, 0.62, 6, 12), coatMat)
-    torso.position.y = 1.12
-    torso.castShadow = true
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.12, 8), skin)
+    neck.position.y = 1.52
+    neck.castShadow = true
 
-    const coat = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.44, 0.65, 10), coatMat)
-    coat.position.y = 0.62
-    coat.castShadow = true
-
-    // Neon strip over de rug
-    const spine = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.72, 0.04), pinkGlow)
-    spine.position.set(0, 1.12, -0.33)
-
-    // Hoofd + visor
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 16, 16), skinMat)
-    head.position.y = 1.78
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 16), skin)
+    head.position.y = 1.72
+    head.scale.set(1, 1.08, 1)
     head.castShadow = true
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.09, 0.16), cyanGlow)
-    visor.position.set(0, 1.8, 0.15)
 
-    // Schouderstukken
-    const shoulderGeo = new THREE.BoxGeometry(0.2, 0.12, 0.26)
-    const shoulderL = new THREE.Mesh(shoulderGeo, skinMat)
-    shoulderL.position.set(-0.42, 1.48, 0)
-    const shoulderR = shoulderL.clone()
-    shoulderR.position.x = 0.42
-    const padL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 0.28), cyanGlow)
-    padL.position.set(-0.42, 1.56, 0)
-    const padR = padL.clone()
-    padR.position.x = 0.42
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.1), skinDark)
+    jaw.position.set(0, 1.64, 0.04)
 
-    // Benen (zwaaien tijdens lopen)
-    const legGeo = new THREE.BoxGeometry(0.16, 0.62, 0.18)
-    legGeo.translate(0, -0.31, 0)
+    const hairTop = new THREE.Mesh(
+      new THREE.SphereGeometry(0.135, 12, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+      hairMat
+    )
+    hairTop.position.y = 1.78
+    hairTop.scale.set(1, 0.75, 1.05)
+    const hairStreak = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.16, 0.02), cyberMat)
+    hairStreak.position.set(0.07, 1.8, 0.02)
+
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.055, 0.1), visorMat)
+    visor.position.set(0, 1.74, 0.12)
+    const visorBridge = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.04), metalGun)
+    visorBridge.position.set(0, 1.74, 0.1)
+
+    const neckImplant = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.03), cyberMat)
+    neckImplant.position.set(0, 1.5, -0.07)
+
+    const chest = new THREE.Mesh(new THREE.CapsuleGeometry(0.19, 0.38, 6, 12), skin)
+    chest.position.y = 1.22
+    chest.castShadow = true
+
+    const jacket = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.52, 0.24), jacketMat)
+    jacket.position.set(0, 1.18, 0)
+    jacket.castShadow = true
+
+    const collar = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.08, 0.26), jacketMat)
+    collar.position.set(0, 1.42, 0)
+
+    const trimL = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.48, 0.02), jacketTrim)
+    trimL.position.set(-0.2, 1.16, 0.13)
+    const trimR = trimL.clone()
+    trimR.position.x = 0.2
+
+    const spineGlow = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.38, 0.02), cyberMat)
+    spineGlow.position.set(0, 1.2, -0.14)
+
+    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.06, 0.22), pantsMat)
+    belt.position.set(0, 0.92, 0)
+    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.03), cyberMat)
+    buckle.position.set(0, 0.92, 0.12)
+
+    const thighGeo = new THREE.BoxGeometry(0.13, 0.34, 0.14)
+    thighGeo.translate(0, -0.17, 0)
+    const shinGeo = new THREE.BoxGeometry(0.11, 0.32, 0.12)
+    shinGeo.translate(0, -0.16, 0)
+
     this.legL = new THREE.Group()
-    this.legL.position.set(-0.16, 0.66, 0)
-    this.legL.add(new THREE.Mesh(legGeo, skinMat))
+    this.legL.position.set(-0.11, 0.9, 0)
+    const thighL = new THREE.Mesh(thighGeo, pantsMat)
+    const shinL = new THREE.Mesh(shinGeo, pantsMat)
+    shinL.position.y = -0.34
+    const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.2), bootMat)
+    bootL.position.set(0, -0.62, 0.03)
+    const soleL = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.025, 0.22), cyberMat)
+    soleL.position.set(0, -0.67, 0.03)
+    this.legL.add(thighL, shinL, bootL, soleL)
+
     this.legR = new THREE.Group()
-    this.legR.position.set(0.16, 0.66, 0)
-    this.legR.add(new THREE.Mesh(legGeo, skinMat))
-    this.legL.children[0].castShadow = true
-    this.legR.children[0].castShadow = true
+    this.legR.position.set(0.11, 0.9, 0)
+    const thighR = new THREE.Mesh(thighGeo, pantsMat)
+    const shinR = new THREE.Mesh(shinGeo, pantsMat)
+    shinR.position.y = -0.34
+    const bootR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.2), bootMat)
+    bootR.position.set(0, -0.62, 0.03)
+    const soleR = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.025, 0.22), cyberMat)
+    soleR.position.set(0, -0.67, 0.03)
+    this.legR.add(thighR, shinR, bootR, soleR)
+    for (const leg of [this.legL, this.legR]) {
+      for (const c of leg.children) (c as THREE.Mesh).castShadow = true
+    }
 
-    // Armen — rechts richt het wapen, links ondersteunt
-    const armGeo = new THREE.BoxGeometry(0.11, 0.5, 0.13)
-    armGeo.translate(0, -0.25, 0)
+    const upperArmGeo = new THREE.BoxGeometry(0.1, 0.28, 0.11)
+    upperArmGeo.translate(0, -0.14, 0)
+    const foreArmGeo = new THREE.BoxGeometry(0.085, 0.24, 0.095)
+    foreArmGeo.translate(0, -0.12, 0)
+    const handGeo = new THREE.BoxGeometry(0.07, 0.06, 0.08)
+
     this.armR = new THREE.Group()
-    this.armR.position.set(0.42, 1.42, 0.05)
-    this.armR.rotation.x = -Math.PI / 2.25
-    this.armR.add(new THREE.Mesh(armGeo, coatMat))
-    this.armL = new THREE.Group()
-    this.armL.position.set(-0.42, 1.42, 0.05)
-    this.armL.rotation.x = -Math.PI / 2.5
-    this.armL.rotation.z = -0.5
-    this.armL.add(new THREE.Mesh(armGeo, coatMat))
+    this.armR.position.set(0.28, 1.38, 0.04)
+    const upperR = new THREE.Mesh(upperArmGeo, jacketMat)
+    const foreR = new THREE.Mesh(foreArmGeo, skin)
+    foreR.position.y = -0.28
+    const handR = new THREE.Mesh(handGeo, skinDark)
+    handR.position.set(0, -0.52, 0.02)
+    this.armR.add(upperR, foreR, handR)
 
-    // SMG
-    this.gun = new THREE.Group()
-    const gunBody = new THREE.Mesh(
-      new THREE.BoxGeometry(0.09, 0.14, 0.52),
-      new THREE.MeshStandardMaterial({ color: 0x11141c, roughness: 0.35, metalness: 0.75 })
-    )
-    const barrel = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.025, 0.025, 0.22, 8),
-      new THREE.MeshStandardMaterial({ color: 0x0c0e14, roughness: 0.3, metalness: 0.85 })
-    )
-    barrel.rotation.x = Math.PI / 2
-    barrel.position.set(0, 0.03, 0.34)
-    const cell = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.06, 0.2), cyanGlow)
-    cell.position.set(0, -0.02, 0.02)
-    this.gun.add(gunBody, barrel, cell)
-    this.gun.position.set(0.3, 1.28, 0.42)
-    this.muzzle.position.set(0, 0.03, 0.48)
-    this.gun.add(this.muzzle)
+    this.armL = new THREE.Group()
+    this.armL.position.set(-0.22, 1.34, 0.18)
+    const upperL = new THREE.Mesh(upperArmGeo, jacketMat)
+    const foreL = new THREE.Mesh(foreArmGeo, skin)
+    foreL.position.y = -0.28
+    const cyberForeL = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.1), metalGun)
+    cyberForeL.position.set(0, -0.18, 0)
+    const cyberLineL = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.1, 0.02), cyberMat)
+    cyberLineL.position.set(0, -0.18, 0.05)
+    const handL = new THREE.Mesh(handGeo, skinDark)
+    handL.position.set(0, -0.52, 0.04)
+    this.armL.add(upperL, foreL, cyberForeL, cyberLineL, handL)
+
+    for (const arm of [this.armR, this.armL]) {
+      for (const c of arm.children) (c as THREE.Mesh).castShadow = true
+    }
+
+    // Tweehands Uzi-houding
+    this.armR.rotation.x = -1.15
+    this.armR.rotation.z = -0.08
+    this.armL.rotation.x = -1.05
+    this.armL.rotation.z = 0.35
+    this.armL.rotation.y = 0.15
+
+    this.gun = this.buildUzi(metalGun, gripGun, neonGun)
+    this.gun.position.set(0.1, 1.22, 0.38)
+    this.gun.rotation.y = -0.04
 
     this.muzzleLight = new THREE.PointLight(0x9fefff, 0, 7, 2)
-    this.muzzleLight.position.set(0.3, 1.3, 0.6)
+    this.muzzleLight.position.set(0.1, 1.24, 0.72)
 
     this.playerBody.add(
-      torso, coat, spine, head, visor,
-      shoulderL, shoulderR, padL, padR,
-      this.legL, this.legR, this.armL, this.armR,
+      neck, head, jaw, hairTop, hairStreak, visor, visorBridge, neckImplant,
+      chest, jacket, collar, trimL, trimR, spineGlow, belt, buckle,
+      this.legL, this.legR, this.armR, this.armL,
       this.gun, this.muzzleLight
     )
     this.player.add(this.playerBody)
@@ -744,12 +904,13 @@ export class Game {
     this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 10, dt)
     this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, targetLeanX, 10, dt)
 
-    // Wapen volgt de pitch een beetje + recoil-herstel
+    // Wapen + armen volgen pitch / recoil (tweehands Uzi)
     this.gunKick = Math.max(0, this.gunKick - dt * 6)
-    this.gun.rotation.x = -this.aimPitch * 0.55 - this.gunKick * 0.7
-    this.gun.position.z = 0.42 - this.gunKick * 0.1
-    this.armR.rotation.x = -Math.PI / 2.25 - this.aimPitch * 0.5 - this.gunKick * 0.5
-    this.armL.rotation.x = -Math.PI / 2.5 - this.aimPitch * 0.5
+    const pitchAim = this.aimPitch * 0.45 + this.gunKick * 0.45
+    this.armR.rotation.x = -1.15 - pitchAim
+    this.armL.rotation.x = -1.05 - this.aimPitch * 0.38 - this.gunKick * 0.25
+    this.gun.rotation.x = -this.aimPitch * 0.52 - this.gunKick * 0.68
+    this.gun.position.z = 0.38 - this.gunKick * 0.09
 
     this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 260)
   }
