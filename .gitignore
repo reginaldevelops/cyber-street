@@ -1,3 +1,7 @@
 node_modules/
 dist/
 .DS_Store
+# Houd bron-GLB's lokaal; gecomprimeerde player.glb zit wel in git
+public/models/Hitem3d*.glb
+public/models/*.orig.glb
+public/models/*.source.glb

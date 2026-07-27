@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
@@ -819,6 +820,10 @@ export class Game {
 
   private loadPlayerModel(): Promise<void> {
     const loader = new GLTFLoader()
+    const draco = new DRACOLoader()
+    draco.setDecoderPath('/draco/')
+    loader.setDRACOLoader(draco)
+
     const modelUrl = resolvePlayerModelUrl()
     console.info('[Cyber Street] Model URL:', modelUrl)
     return new Promise((resolve, reject) => {
@@ -872,9 +877,11 @@ export class Game {
           this.scene.add(this.player)
 
           const clips = gltf.animations
+          const isStatic = clips.length === 0 && this.playerSkinnedMeshes.length === 0
           console.info(
             '[Cyber Street] GLB geladen — animaties:',
             clips.length ? clips.map((c) => c.name) : '(geen — statisch model)',
+            isStatic ? '| geen skeleton → Mixamo nodig voor walk/aim' : '',
           )
 
           this.playerMixer = new THREE.AnimationMixer(this.playerModel)
@@ -896,12 +903,11 @@ export class Game {
           if (shootClip) this.playerAnims.shoot = this.setupPlayerAction(shootClip, false)
           if (drawClip) this.playerAnims.draw = this.setupPlayerAction(drawClip, false)
 
-          // Custom aim/shoot clips uit Blender → geen procedural arm-pose nodig
-          this.useProceduralAim = !aimClip && !shootClip && !drawClip
+          // Alleen procedural aim als er botten zijn én geen custom aim-clips
+          this.useProceduralAim = !isStatic && !aimClip && !shootClip && !drawClip
+          if (!isStatic) this.resolveAimBones()
 
-          this.resolveAimBones()
-
-          const rightHand = this.findBoneBySuffix(this.playerModel, 'RightHand')
+          const rightHand = isStatic ? null : this.findBoneBySuffix(this.playerModel, 'RightHand')
 
           if (!this.modelHasEmbeddedWeapon) {
             const metalGun = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.35, metalness: 0.9 })
@@ -918,16 +924,17 @@ export class Game {
             this.gun.scale.setScalar(1.15)
 
             this.gunHolder = new THREE.Group()
-            this.gunHolder.position.set(0.03, 0.09, 0.05)
-            this.gunHolder.rotation.set(-1.25, 0.12, 0.08)
             this.gunHolder.add(this.gun)
 
             if (rightHand) {
+              this.gunHolder.position.set(0.03, 0.09, 0.05)
+              this.gunHolder.rotation.set(-1.25, 0.12, 0.08)
               rightHand.add(this.gunHolder)
             } else {
+              // Statisch model: wapen voor de borst
               this.playerBody.add(this.gunHolder)
-              this.gunHolder.position.set(0.34, 1.18, 0.28)
-              console.warn('[Cyber Street] Geen RightHand bone — Uzi aan lichaam gehangen')
+              this.gunHolder.position.set(0.22, 1.2, 0.32)
+              this.gunHolder.rotation.set(-0.15, 0.05, 0.08)
             }
 
             this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
