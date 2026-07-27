@@ -40,8 +40,16 @@ const ENEMY_RESPAWN = 2.6
 const NEON_CYAN = 0x00f6ff
 const NEON_PINK = 0xff2d95
 const NEON_YELLOW = 0xffe14d
-const PLAYER_MODEL_URL = '/models/player.glb'
+const DEFAULT_PLAYER_MODEL_URL = '/models/player.glb'
 const PLAYER_TARGET_HEIGHT = 1.78
+
+/** Lokaal bestand, of externe URL via ?glb=https://... in de adresbalk. */
+function resolvePlayerModelUrl(): string {
+  const params = new URLSearchParams(window.location.search)
+  const external = params.get('glb') ?? params.get('model')
+  if (external) return decodeURIComponent(external)
+  return DEFAULT_PLAYER_MODEL_URL
+}
 
 type PlayerAnim = 'idle' | 'walk' | 'run' | 'aim' | 'shoot' | 'draw'
 
@@ -811,9 +819,11 @@ export class Game {
 
   private loadPlayerModel(): Promise<void> {
     const loader = new GLTFLoader()
+    const modelUrl = resolvePlayerModelUrl()
+    console.info('[Cyber Street] Model URL:', modelUrl)
     return new Promise((resolve, reject) => {
       loader.load(
-        PLAYER_MODEL_URL,
+        modelUrl,
         (gltf) => {
           this.playerModel = gltf.scene
           this.playerSkinnedMeshes = []
