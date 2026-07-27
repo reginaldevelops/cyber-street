@@ -82,6 +82,10 @@ function dampAngle(current: number, target: number, lambda: number, dt: number) 
   return current + delta * (1 - Math.exp(-lambda * dt))
 }
 
+const _aimQuat = new THREE.Quaternion()
+const _aimEuler = new THREE.Euler()
+const _animQuat = new THREE.Quaternion()
+
 export class Game {
   private container: HTMLElement
   private hintEl: HTMLElement
@@ -103,7 +107,19 @@ export class Game {
   private playerAnims: Partial<Record<PlayerAnim, THREE.AnimationAction>> = {}
   private playerAnim: PlayerAnim = 'idle'
   private gunHolder!: THREE.Group
-  private spineBone: THREE.Bone | null = null
+  private aimBlend = 0
+  private aimBones = {
+    spine: null as THREE.Bone | null,
+    spine1: null as THREE.Bone | null,
+    spine2: null as THREE.Bone | null,
+    neck: null as THREE.Bone | null,
+    rightShoulder: null as THREE.Bone | null,
+    rightArm: null as THREE.Bone | null,
+    rightForeArm: null as THREE.Bone | null,
+    leftShoulder: null as THREE.Bone | null,
+    leftArm: null as THREE.Bone | null,
+    leftForeArm: null as THREE.Bone | null,
+  }
   private gun!: THREE.Group
   private muzzle = new THREE.Object3D()
   private muzzleLight!: THREE.PointLight
@@ -681,6 +697,47 @@ export class Game {
     return found
   }
 
+  private findBoneByName(root: THREE.Object3D, name: string): THREE.Bone | null {
+    let found: THREE.Bone | null = null
+    root.traverse((obj) => {
+      if (found || !(obj as THREE.Bone).isBone) return
+      if (obj.name === name) found = obj as THREE.Bone
+    })
+    return found
+  }
+
+  /** Blend huidige animatie-pose naar aim-pose op een bot (na mixer.update). */
+  private blendBoneTowardAim(bone: THREE.Bone, x: number, y: number, z: number, blend: number) {
+    if (blend <= 0.001) return
+    _animQuat.copy(bone.quaternion)
+    _aimEuler.set(x, y, z)
+    _aimQuat.setFromEuler(_aimEuler)
+    bone.quaternion.copy(_animQuat).slerp(_aimQuat, blend)
+  }
+
+  /** Tweehands aim-pose — armen omhoog, volgt pitch + recoil. */
+  private applyPlayerAimPose(blend: number) {
+    if (blend <= 0.001) return
+    const pitch = this.aimPitch + this.gunKick * 0.35
+    const kick = this.gunKick * 0.18
+
+    const { spine, spine1, spine2, neck, rightShoulder, rightArm, rightForeArm, leftShoulder, leftArm, leftForeArm } =
+      this.aimBones
+
+    if (spine) this.blendBoneTowardAim(spine, pitch * 0.08 + kick, 0, 0, blend)
+    if (spine1) this.blendBoneTowardAim(spine1, pitch * 0.12 + kick, 0, 0, blend)
+    if (spine2) this.blendBoneTowardAim(spine2, pitch * 0.2 + kick, 0, 0, blend)
+    if (neck) this.blendBoneTowardAim(neck, pitch * -0.06, 0, 0, blend * 0.65)
+
+    if (rightShoulder) this.blendBoneTowardAim(rightShoulder, 0.12, 0.05, -0.42, blend)
+    if (rightArm) this.blendBoneTowardAim(rightArm, -1.42 - pitch * 0.72, 0.08, -0.12, blend)
+    if (rightForeArm) this.blendBoneTowardAim(rightForeArm, -0.38 - pitch * 0.25, 0.42, 0.04, blend)
+
+    if (leftShoulder) this.blendBoneTowardAim(leftShoulder, 0.08, -0.04, 0.48, blend)
+    if (leftArm) this.blendBoneTowardAim(leftArm, -1.05 - pitch * 0.55, 0.32, 0.62, blend)
+    if (leftForeArm) this.blendBoneTowardAim(leftForeArm, -0.62, 0.22, 0.08, blend)
+  }
+
   private fadePlayerAnim(next: PlayerAnim, duration = 0.22) {
     if (this.playerAnim === next) return
     const from = this.playerAnims[this.playerAnim]
@@ -744,11 +801,20 @@ export class Game {
           if (walkClip) this.playerAnims.walk = this.playerMixer.clipAction(walkClip)
           if (runClip) this.playerAnims.run = this.playerMixer.clipAction(runClip)
 
-          this.spineBone = this.findBone(this.playerModel, /Spine2|spine_02|mixamorigSpine2/i)
+          this.aimBones.spine = this.findBoneByName(this.playerModel, 'mixamorig:Spine')
+          this.aimBones.spine1 = this.findBoneByName(this.playerModel, 'mixamorig:Spine1')
+          this.aimBones.spine2 = this.findBoneByName(this.playerModel, 'mixamorig:Spine2')
+          this.aimBones.neck = this.findBoneByName(this.playerModel, 'mixamorig:Neck')
+          this.aimBones.rightShoulder = this.findBoneByName(this.playerModel, 'mixamorig:RightShoulder')
+          this.aimBones.rightArm = this.findBoneByName(this.playerModel, 'mixamorig:RightArm')
+          this.aimBones.rightForeArm = this.findBoneByName(this.playerModel, 'mixamorig:RightForeArm')
+          this.aimBones.leftShoulder = this.findBoneByName(this.playerModel, 'mixamorig:LeftShoulder')
+          this.aimBones.leftArm = this.findBoneByName(this.playerModel, 'mixamorig:LeftArm')
+          this.aimBones.leftForeArm = this.findBoneByName(this.playerModel, 'mixamorig:LeftForeArm')
 
           const rightHand =
-            this.findBone(this.playerModel, /RightHand|mixamorigRightHand/i) ??
-            this.findBone(this.playerModel, /Hand\.R|hand_r/i)
+            this.findBoneByName(this.playerModel, 'mixamorig:RightHand') ??
+            this.findBone(this.playerModel, /RightHand|mixamorigRightHand/i)
 
           const metalGun = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.35, metalness: 0.9 })
           const gripGun = new THREE.MeshStandardMaterial({ color: 0x141210, roughness: 0.78, metalness: 0.12 })
@@ -764,8 +830,8 @@ export class Game {
           this.gun.scale.setScalar(1.15)
 
           this.gunHolder = new THREE.Group()
-          this.gunHolder.position.set(0.02, 0.1, 0.04)
-          this.gunHolder.rotation.set(-1.35, 0.08, 0.05)
+          this.gunHolder.position.set(0.03, 0.09, 0.05)
+          this.gunHolder.rotation.set(-1.25, 0.12, 0.08)
           this.gunHolder.add(this.gun)
 
           if (rightHand) {
@@ -1079,6 +1145,12 @@ export class Game {
 
     this.playerMixer.update(dt)
 
+    // Aim-pose: armen omhoog zodra je mikt/schiet (pointer lock + vuurknop)
+    const aimTarget = this.pointerLocked ? (this.firing ? 1 : 0.82) : 0
+    const aimSpeed = this.firing ? 18 : 10
+    this.aimBlend = THREE.MathUtils.damp(this.aimBlend, aimTarget, aimSpeed, dt)
+    this.applyPlayerAimPose(this.aimBlend)
+
     this.playerBody.position.y = Math.abs(Math.sin(this.clock.elapsedTime * (6 + speedRatio * 4))) * 0.028 * Math.min(speedRatio * 2, 1)
 
     // In de bocht/strafe leunen — voelt vloeiend en dynamisch
@@ -1090,19 +1162,11 @@ export class Game {
     this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 10, dt)
     this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, targetLeanX, 10, dt)
 
-    // Wapen volgt pitch / recoil via hand-bone attachment
+    // Recoil op wapen (hand-bone volgt aim-pose)
     this.gunKick = Math.max(0, this.gunKick - dt * 6)
     if (this.gunHolder) {
-      this.gunHolder.rotation.x = -1.35 - this.aimPitch * 0.55 - this.gunKick * 0.35
-      this.gun.rotation.x = -this.gunKick * 0.45
-    }
-    if (this.spineBone) {
-      this.spineBone.rotation.x = THREE.MathUtils.damp(
-        this.spineBone.rotation.x,
-        this.aimPitch * 0.22,
-        12,
-        dt,
-      )
+      this.gunHolder.rotation.x = -1.25 - this.aimPitch * 0.35 - this.gunKick * 0.4
+      this.gun.rotation.x = -this.gunKick * 0.5
     }
 
     this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 260)
