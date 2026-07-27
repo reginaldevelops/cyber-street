@@ -4,26 +4,21 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
 const SPRINT_SPEED = 8.8
-const ACCEL = 14 // hoe snel je op snelheid komt (hoger = directer)
-const DECEL = 11 // hoe snel je afremt
-const MOUSE_SENS = 0.0021
-const PITCH_MIN = -0.5
-const PITCH_MAX = 0.62
+const ACCEL = 14
+const DECEL = 11
 
-const CAM_DIST = 4.8
-const CAM_HEIGHT = 2.4
-const CAM_FOLLOW = 9 // smoothing van de camera-focus
-const FOV_WALK = 62
-const FOV_SPRINT = 70
+const ISO_FRUSTUM = 22 // orthografische zoom
+const ISO_CAM_OFFSET = new THREE.Vector3(26, 26, 26)
+const ISO_FOLLOW = 9
+const ISO_FORWARD = new THREE.Vector3(-1, 0, -1).normalize()
+const ISO_RIGHT = new THREE.Vector3(1, 0, -1).normalize()
 
 const FIRE_INTERVAL = 0.115
 const GUN_RANGE = 90
-const AIM_ASSIST_ANGLE = 0.045 // rad — kleine snap zodat schieten arcade-achtig aanvoelt
+const AIM_ASSIST_ANGLE = 0.055
 
 const STREET_LENGTH = 72
 const ROAD_WIDTH = 10
@@ -40,28 +35,6 @@ const ENEMY_RESPAWN = 2.6
 const NEON_CYAN = 0x00f6ff
 const NEON_PINK = 0xff2d95
 const NEON_YELLOW = 0xffe14d
-const DEFAULT_PLAYER_MODEL_URL = '/models/player.glb'
-const PLAYER_TARGET_HEIGHT = 1.78
-
-/** Lokaal bestand, of externe URL via ?glb=https://... in de adresbalk. */
-function resolvePlayerModelUrl(): string {
-  const params = new URLSearchParams(window.location.search)
-  const external = params.get('glb') ?? params.get('model')
-  if (external) return decodeURIComponent(external)
-  return DEFAULT_PLAYER_MODEL_URL
-}
-
-type PlayerAnim = 'idle' | 'walk' | 'run' | 'aim' | 'shoot' | 'draw'
-
-/** Zoek animatieclip op fuzzy naam (Mixamo, Blender, etc.). */
-function findAnimClip(clips: THREE.AnimationClip[], ...patterns: RegExp[]): THREE.AnimationClip | undefined {
-  for (const pat of patterns) {
-    const hit = clips.find((c) => pat.test(c.name))
-    if (hit) return hit
-  }
-  return undefined
-}
-
 const NEON_ORANGE = 0xff6622
 
 type Keys = { w: boolean; a: boolean; s: boolean; d: boolean; sprint: boolean }
@@ -99,9 +72,9 @@ function dampAngle(current: number, target: number, lambda: number, dt: number) 
   return current + delta * (1 - Math.exp(-lambda * dt))
 }
 
-const _aimQuat = new THREE.Quaternion()
-const _aimEuler = new THREE.Euler()
-const _animQuat = new THREE.Quaternion()
+const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+const _mouseNdc = new THREE.Vector2()
+const _aimHit = new THREE.Vector3()
 
 export class Game {
   private container: HTMLElement
@@ -113,45 +86,28 @@ export class Game {
   private composer!: EffectComposer
   private bloom!: UnrealBloomPass
   private scene = new THREE.Scene()
-  private camera = new THREE.PerspectiveCamera(FOV_WALK, 1, 0.1, 220)
+  private camera!: THREE.OrthographicCamera
   private clock = new THREE.Clock()
 
   // Speler
   private player = new THREE.Group()
-  private playerBody = new THREE.Group() // bob + lean
-  private playerModel!: THREE.Group
-  private playerMixer!: THREE.AnimationMixer
-  private playerAnims: Partial<Record<PlayerAnim, THREE.AnimationAction>> = {}
-  private playerAnim: PlayerAnim = 'idle'
-  private playerSkinnedMeshes: THREE.SkinnedMesh[] = []
-  private useProceduralAim = true
-  private modelHasEmbeddedWeapon = false
-  private gunHolder!: THREE.Group
-  private aimBlend = 0
-  private aimBones = {
-    spine: null as THREE.Bone | null,
-    spine1: null as THREE.Bone | null,
-    spine2: null as THREE.Bone | null,
-    neck: null as THREE.Bone | null,
-    rightShoulder: null as THREE.Bone | null,
-    rightArm: null as THREE.Bone | null,
-    rightForeArm: null as THREE.Bone | null,
-    leftShoulder: null as THREE.Bone | null,
-    leftArm: null as THREE.Bone | null,
-    leftForeArm: null as THREE.Bone | null,
-  }
+  private playerBody = new THREE.Group()
+  private legL = new THREE.Group()
+  private legR = new THREE.Group()
   private gun!: THREE.Group
+  private gunHolder = new THREE.Group()
   private muzzle = new THREE.Object3D()
   private muzzleLight!: THREE.PointLight
+  private walkPhase = 0
 
   private velocity = new THREE.Vector3()
   private gunKick = 0
+  private aimYaw = 0
+  private aimPoint = new THREE.Vector3(0, 0, 8)
+  private mouseScreen = { x: 0, y: 0 }
 
   // Camera / input
-  private aimYaw = 0
-  private aimPitch = 0.14
   private camFocus = new THREE.Vector3(0, 0, 0)
-  private pointerLocked = false
   private keys: Keys = { w: false, a: false, s: false, d: false, sprint: false }
   private firing = false
   private fireCooldown = 0
@@ -185,35 +141,35 @@ export class Game {
     this.renderer.toneMappingExposure = 1.38
     container.appendChild(this.renderer.domElement)
 
+    const aspect = container.clientWidth / Math.max(container.clientHeight, 1)
+    this.camera = new THREE.OrthographicCamera(
+      (-ISO_FRUSTUM * aspect) / 2,
+      (ISO_FRUSTUM * aspect) / 2,
+      ISO_FRUSTUM / 2,
+      -ISO_FRUSTUM / 2,
+      0.1,
+      220,
+    )
+
     const pmrem = new THREE.PMREMGenerator(this.renderer)
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
     this.scene.environmentIntensity = 0.28
 
     this.setupPost()
     this.buildWorld()
+    this.buildIsoPlayer()
     this.buildEnemies()
     this.bindEvents()
-    this.onResize()
-    void this.bootstrap()
     window.addEventListener('resize', () => this.onResize())
-    ;(window as unknown as { __game: Game }).__game = this
-  }
-
-  private async bootstrap() {
-    this.hintEl.textContent = 'Character laden…'
-    try {
-      await this.loadPlayerModel()
-    } catch (err) {
-      console.error(err)
-      this.hintEl.textContent = 'Kon character niet laden — refresh de pagina'
-      return
-    }
-    this.hintEl.innerHTML =
-      'Klik om te spelen · <b>WASD</b> lopen · <b>Shift</b> sprinten · <b>Muis</b> mikken · <b>Klik</b> schieten'
+    this.onResize()
     this.camFocus.copy(this.player.position)
+    this.mouseScreen.x = window.innerWidth / 2
+    this.mouseScreen.y = window.innerHeight / 2
+    this.updateCrosshair()
     this.updateCamera(0)
     this.clock.start()
     this.animate()
+    ;(window as unknown as { __game: Game }).__game = this
   }
 
   private setupPost() {
@@ -708,249 +664,107 @@ export class Game {
     return uzi
   }
 
-  private findBone(root: THREE.Object3D, pattern: RegExp): THREE.Bone | null {
-    let found: THREE.Bone | null = null
-    root.traverse((obj) => {
-      if (found || !(obj as THREE.Bone).isBone) return
-      if (pattern.test(obj.name)) found = obj as THREE.Bone
+  private buildIsoPlayer() {
+    const coatMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1824,
+      roughness: 0.62,
+      metalness: 0.28,
     })
-    return found
-  }
-
-  private findBoneByName(root: THREE.Object3D, name: string): THREE.Bone | null {
-    let found: THREE.Bone | null = null
-    root.traverse((obj) => {
-      if (found || !(obj as THREE.Bone).isBone) return
-      if (obj.name === name) found = obj as THREE.Bone
+    const trimMat = new THREE.MeshStandardMaterial({
+      color: NEON_CYAN,
+      emissive: NEON_CYAN,
+      emissiveIntensity: 0.55,
+      roughness: 0.35,
+      metalness: 0.5,
     })
-    return found
-  }
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xc8a88a, roughness: 0.72, metalness: 0.08 })
+    const bootMat = new THREE.MeshStandardMaterial({ color: 0x141018, roughness: 0.55, metalness: 0.35 })
+    const metalGun = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.35, metalness: 0.9 })
+    const gripGun = new THREE.MeshStandardMaterial({ color: 0x141210, roughness: 0.78, metalness: 0.12 })
+    const neonGun = new THREE.MeshStandardMaterial({
+      color: NEON_ORANGE,
+      emissive: NEON_ORANGE,
+      emissiveIntensity: 0.9,
+      roughness: 0.35,
+      metalness: 0.45,
+    })
 
-  /** Blend huidige animatie-pose naar aim-pose op een bot (na mixer.update). */
-  private blendBoneTowardAim(bone: THREE.Bone, x: number, y: number, z: number, blend: number) {
-    if (blend <= 0.001) return
-    _animQuat.copy(bone.quaternion)
-    _aimEuler.set(x, y, z)
-    _aimQuat.setFromEuler(_aimEuler)
-    bone.quaternion.copy(_animQuat).slerp(_aimQuat, blend)
-  }
+    // Trenchcoat torso
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.72, 0.28), coatMat)
+    torso.position.y = 1.08
+    torso.castShadow = true
+    const lapelL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.38, 0.02), trimMat)
+    lapelL.position.set(-0.14, 1.18, 0.15)
+    const lapelR = lapelL.clone()
+    lapelR.position.x = 0.14
+    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.3), metalGun)
+    belt.position.set(0, 0.82, 0.02)
+    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.04), trimMat)
+    buckle.position.set(0, 0.82, 0.17)
 
-  /** Tweehands aim-pose — armen omhoog, volgt pitch + recoil. */
-  private applyPlayerAimPose(blend: number) {
-    if (blend <= 0.001) return
-    const pitch = this.aimPitch + this.gunKick * 0.35
-    const kick = this.gunKick * 0.18
+    // Head + cyber eye
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.26, 0.24), skinMat)
+    head.position.y = 1.62
+    head.castShadow = true
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.28), coatMat)
+    hood.position.set(0, 1.76, -0.02)
+    const eyeHuman = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 8), new THREE.MeshStandardMaterial({ color: 0x221818 }))
+    eyeHuman.position.set(-0.06, 1.64, 0.13)
+    const eyeCyber = new THREE.Mesh(new THREE.SphereGeometry(0.032, 8, 8), trimMat)
+    eyeCyber.position.set(0.06, 1.64, 0.13)
+    const jawLine = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.03, 0.04), trimMat)
+    jawLine.position.set(0.06, 1.56, 0.13)
 
-    const { spine, spine1, spine2, neck, rightShoulder, rightArm, rightForeArm, leftShoulder, leftArm, leftForeArm } =
-      this.aimBones
-
-    if (spine) this.blendBoneTowardAim(spine, pitch * 0.08 + kick, 0, 0, blend)
-    if (spine1) this.blendBoneTowardAim(spine1, pitch * 0.12 + kick, 0, 0, blend)
-    if (spine2) this.blendBoneTowardAim(spine2, pitch * 0.2 + kick, 0, 0, blend)
-    if (neck) this.blendBoneTowardAim(neck, pitch * -0.06, 0, 0, blend * 0.65)
-
-    if (rightShoulder) this.blendBoneTowardAim(rightShoulder, 0.12, 0.05, -0.42, blend)
-    if (rightArm) this.blendBoneTowardAim(rightArm, -1.42 - pitch * 0.72, 0.08, -0.12, blend)
-    if (rightForeArm) this.blendBoneTowardAim(rightForeArm, -0.38 - pitch * 0.25, 0.42, 0.04, blend)
-
-    if (leftShoulder) this.blendBoneTowardAim(leftShoulder, 0.08, -0.04, 0.48, blend)
-    if (leftArm) this.blendBoneTowardAim(leftArm, -1.05 - pitch * 0.55, 0.32, 0.62, blend)
-    if (leftForeArm) this.blendBoneTowardAim(leftForeArm, -0.62, 0.22, 0.08, blend)
-  }
-
-  private findBoneBySuffix(root: THREE.Object3D, suffix: string): THREE.Bone | null {
-    const variants = [
-      suffix,
-      suffix.replace('.', ''),
-      `mixamorig:${suffix}`,
-      `mixamorig${suffix}`,
-      `mixamorig:${suffix.replace('.', '')}`,
-    ]
-    for (const name of variants) {
-      const bone = this.findBoneByName(root, name)
-      if (bone) return bone
+    // Arms
+    const buildArm = (side: number) => {
+      const arm = new THREE.Group()
+      arm.position.set(side * 0.32, 1.28, 0)
+      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.32, 0.12), coatMat)
+      upper.position.y = -0.16
+      upper.castShadow = true
+      const fore = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.28, 0.1), coatMat)
+      fore.position.y = -0.42
+      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), skinMat)
+      hand.position.y = -0.58
+      arm.add(upper, fore, hand)
+      return arm
     }
-    return this.findBone(root, new RegExp(`${suffix.replace('.', '\\.')}$`, 'i'))
-  }
+    const armL = buildArm(-1)
+    const armR = buildArm(1)
 
-  private resolveAimBones() {
-    this.aimBones.spine = this.findBoneBySuffix(this.playerModel, 'Spine')
-    this.aimBones.spine1 = this.findBoneBySuffix(this.playerModel, 'Spine1')
-    this.aimBones.spine2 = this.findBoneBySuffix(this.playerModel, 'Spine2')
-    this.aimBones.neck = this.findBoneBySuffix(this.playerModel, 'Neck')
-    this.aimBones.rightShoulder = this.findBoneBySuffix(this.playerModel, 'RightShoulder')
-    this.aimBones.rightArm = this.findBoneBySuffix(this.playerModel, 'RightArm')
-    this.aimBones.rightForeArm = this.findBoneBySuffix(this.playerModel, 'RightForeArm')
-    this.aimBones.leftShoulder = this.findBoneBySuffix(this.playerModel, 'LeftShoulder')
-    this.aimBones.leftArm = this.findBoneBySuffix(this.playerModel, 'LeftArm')
-    this.aimBones.leftForeArm = this.findBoneBySuffix(this.playerModel, 'LeftForeArm')
-  }
-
-  private updatePlayerSkeleton() {
-    for (const mesh of this.playerSkinnedMeshes) {
-      mesh.skeleton.update()
+    // Benen (groepen voor loop-animatie)
+    const buildLeg = (leg: THREE.Group, side: number) => {
+      leg.position.set(side * 0.12, 0.78, 0)
+      const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.34, 0.14), coatMat)
+      thigh.position.y = -0.17
+      thigh.castShadow = true
+      const shin = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.32, 0.12), bootMat)
+      shin.position.y = -0.5
+      const boot = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.22), bootMat)
+      boot.position.set(0, -0.68, 0.04)
+      leg.add(thigh, shin, boot)
     }
-  }
+    buildLeg(this.legL, -1)
+    buildLeg(this.legR, 1)
 
-  private setupPlayerAction(clip: THREE.AnimationClip, loop = true): THREE.AnimationAction {
-    const action = this.playerMixer.clipAction(clip)
-    action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
-    if (!loop) action.clampWhenFinished = true
-    action.enabled = true
-    action.setEffectiveWeight(0)
-    action.play()
-    return action
-  }
+    // Wapen
+    this.gun = this.buildUzi(metalGun, gripGun, neonGun)
+    this.gun.scale.setScalar(1.15)
+    this.gunHolder.position.set(0.34, 1.12, 0.22)
+    this.gunHolder.rotation.set(-0.35, -0.15, 0.1)
+    this.gunHolder.add(this.gun)
+    this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
+    this.gun.add(this.muzzleLight)
+    this.muzzleLight.position.set(0, 0.02, 0.42)
 
-  private setPlayerActionWeight(anim: PlayerAnim, weight: number) {
-    const action = this.playerAnims[anim]
-    if (action) action.setEffectiveWeight(weight)
-  }
-
-  private fadePlayerAnim(next: PlayerAnim, duration = 0.22) {
-    if (this.playerAnim === next) return
-    const from = this.playerAnims[this.playerAnim]
-    const to = this.playerAnims[next]
-    if (!to) return
-    if (from) from.fadeOut(duration)
-    to.reset().fadeIn(duration).play()
-    this.playerAnim = next
-  }
-
-  private loadPlayerModel(): Promise<void> {
-    const loader = new GLTFLoader()
-    const modelUrl = resolvePlayerModelUrl()
-    console.info('[Cyber Street] Model URL:', modelUrl)
-    return new Promise((resolve, reject) => {
-      loader.load(
-        modelUrl,
-        (gltf) => {
-          this.playerModel = gltf.scene
-          this.playerSkinnedMeshes = []
-          this.modelHasEmbeddedWeapon = false
-
-          this.playerModel.traverse((obj) => {
-            if ((obj as THREE.SkinnedMesh).isSkinnedMesh) {
-              this.playerSkinnedMeshes.push(obj as THREE.SkinnedMesh)
-            }
-            if ((obj as THREE.Mesh).isMesh && /gun|weapon|rifle|uzi|pistol|sword/i.test(obj.name)) {
-              this.modelHasEmbeddedWeapon = true
-            }
-          })
-
-          // Schaal zodat voeten op grond staan op ~1.78m lengte
-          const bounds = new THREE.Box3().setFromObject(this.playerModel)
-          const size = bounds.getSize(new THREE.Vector3())
-          const scale = PLAYER_TARGET_HEIGHT / Math.max(size.y, 0.001)
-          this.playerModel.scale.setScalar(scale)
-          bounds.setFromObject(this.playerModel)
-          this.playerModel.position.y = -bounds.min.y
-          this.playerModel.position.x -= (bounds.min.x + bounds.max.x) * 0.5
-          this.playerModel.position.z -= (bounds.min.z + bounds.max.z) * 0.5
-
-          // Mixamo/modellen kijken vaak -Z op; onze forward is +Z
-          this.playerModel.rotation.y = Math.PI
-
-          this.playerModel.traverse((obj) => {
-            if (!(obj as THREE.Mesh).isMesh) return
-            const mesh = obj as THREE.Mesh
-            mesh.castShadow = true
-            mesh.receiveShadow = true
-            mesh.frustumCulled = false
-            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-            for (const mat of mats) {
-              if (!(mat instanceof THREE.MeshStandardMaterial)) continue
-              mat.roughness = Math.min(mat.roughness + 0.08, 0.72)
-              mat.metalness = Math.max(mat.metalness, 0.18)
-              mat.envMapIntensity = 0.85
-            }
-          })
-
-          this.playerBody.add(this.playerModel)
-          this.player.add(this.playerBody)
-          this.player.position.set(0, 0, 6)
-          this.scene.add(this.player)
-
-          const clips = gltf.animations
-          console.info(
-            '[Cyber Street] GLB geladen — animaties:',
-            clips.length ? clips.map((c) => c.name) : '(geen — statisch model)',
-          )
-
-          this.playerMixer = new THREE.AnimationMixer(this.playerModel)
-
-          const idleClip = findAnimClip(clips, /^idle$/i, /idle/i)
-          const walkClip = findAnimClip(clips, /^walk$/i, /walk/i)
-          const runClip = findAnimClip(clips, /^run$/i, /run/i, /sprint/i)
-          const aimClip = findAnimClip(clips, /aim/i, /rifle/i, /gun_idle/i)
-          const shootClip = findAnimClip(clips, /shoot/i, /fire/i, /recoil/i)
-          const drawClip = findAnimClip(clips, /draw/i, /equip/i, /pull/i)
-
-          if (idleClip) {
-            this.playerAnims.idle = this.setupPlayerAction(idleClip)
-            this.setPlayerActionWeight('idle', 1)
-          }
-          if (walkClip) this.playerAnims.walk = this.setupPlayerAction(walkClip)
-          if (runClip) this.playerAnims.run = this.setupPlayerAction(runClip)
-          if (aimClip) this.playerAnims.aim = this.setupPlayerAction(aimClip)
-          if (shootClip) this.playerAnims.shoot = this.setupPlayerAction(shootClip, false)
-          if (drawClip) this.playerAnims.draw = this.setupPlayerAction(drawClip, false)
-
-          // Custom aim/shoot clips uit Blender → geen procedural arm-pose nodig
-          this.useProceduralAim = !aimClip && !shootClip && !drawClip
-
-          this.resolveAimBones()
-
-          const rightHand = this.findBoneBySuffix(this.playerModel, 'RightHand')
-
-          if (!this.modelHasEmbeddedWeapon) {
-            const metalGun = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.35, metalness: 0.9 })
-            const gripGun = new THREE.MeshStandardMaterial({ color: 0x141210, roughness: 0.78, metalness: 0.12 })
-            const neonGun = new THREE.MeshStandardMaterial({
-              color: NEON_ORANGE,
-              emissive: NEON_ORANGE,
-              emissiveIntensity: 0.9,
-              roughness: 0.35,
-              metalness: 0.45,
-            })
-
-            this.gun = this.buildUzi(metalGun, gripGun, neonGun)
-            this.gun.scale.setScalar(1.15)
-
-            this.gunHolder = new THREE.Group()
-            this.gunHolder.position.set(0.03, 0.09, 0.05)
-            this.gunHolder.rotation.set(-1.25, 0.12, 0.08)
-            this.gunHolder.add(this.gun)
-
-            if (rightHand) {
-              rightHand.add(this.gunHolder)
-            } else {
-              this.playerBody.add(this.gunHolder)
-              this.gunHolder.position.set(0.34, 1.18, 0.28)
-              console.warn('[Cyber Street] Geen RightHand bone — Uzi aan lichaam gehangen')
-            }
-
-            this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
-            this.gun.add(this.muzzleLight)
-            this.muzzleLight.position.set(0, 0.02, 0.42)
-          } else {
-            this.gun = new THREE.Group()
-            this.gunHolder = new THREE.Group()
-            this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
-            if (rightHand) {
-              this.muzzle = new THREE.Object3D()
-              this.muzzle.position.set(0, 0.05, 0.35)
-              rightHand.add(this.muzzle)
-            }
-            console.info('[Cyber Street] Wapen zit in GLB — geen extra Uzi')
-          }
-
-          resolve()
-        },
-        undefined,
-        reject,
-      )
-    })
+    this.playerBody.add(
+      torso, lapelL, lapelR, belt, buckle,
+      head, hood, eyeHuman, eyeCyber, jawLine,
+      armL, armR, this.legL, this.legR, this.gunHolder,
+    )
+    this.player.add(this.playerBody)
+    this.player.position.set(0, 0, 6)
+    this.scene.add(this.player)
   }
 
   // ── Vijanden ────────────────────────────────────────────────────────────
@@ -1151,29 +965,36 @@ export class Game {
     window.addEventListener('keydown', (e) => this.setKey(e.code, true))
     window.addEventListener('keyup', (e) => this.setKey(e.code, false))
 
-    this.renderer.domElement.addEventListener('click', () => {
-      if (!this.pointerLocked) this.renderer.domElement.requestPointerLock()
+    const canvas = this.renderer.domElement
+    canvas.addEventListener('mousemove', (e) => {
+      this.mouseScreen.x = e.clientX
+      this.mouseScreen.y = e.clientY
+      this.updateCrosshair()
     })
-    document.addEventListener('pointerlockchange', () => {
-      this.pointerLocked = document.pointerLockElement === this.renderer.domElement
-      this.hintEl.classList.toggle('hidden', this.pointerLocked)
-      if (!this.pointerLocked) this.firing = false
-    })
-    document.addEventListener('mousemove', (e) => {
-      if (!this.pointerLocked) return
-      this.aimYaw -= e.movementX * MOUSE_SENS
-      this.aimPitch = THREE.MathUtils.clamp(
-        this.aimPitch + e.movementY * MOUSE_SENS,
-        PITCH_MIN,
-        PITCH_MAX
-      )
-    })
-    document.addEventListener('mousedown', (e) => {
-      if (this.pointerLocked && e.button === 0) this.firing = true
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 0) this.firing = true
     })
     document.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.firing = false
     })
+  }
+
+  private updateCrosshair() {
+    if (!this.crosshairEl) return
+    this.crosshairEl.style.left = `${this.mouseScreen.x}px`
+    this.crosshairEl.style.top = `${this.mouseScreen.y}px`
+    this.crosshairEl.style.margin = '0'
+    this.crosshairEl.style.transform = 'translate(-50%, -50%)'
+  }
+
+  private updateAimFromMouse() {
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    _mouseNdc.x = ((this.mouseScreen.x - rect.left) / rect.width) * 2 - 1
+    _mouseNdc.y = -((this.mouseScreen.y - rect.top) / rect.height) * 2 + 1
+    this.raycaster.setFromCamera(_mouseNdc, this.camera)
+    if (this.raycaster.ray.intersectPlane(_groundPlane, _aimHit)) {
+      this.aimPoint.copy(_aimHit)
+    }
   }
 
   private setKey(code: string, down: boolean) {
@@ -1187,7 +1008,11 @@ export class Game {
   private onResize() {
     const w = this.container.clientWidth
     const h = this.container.clientHeight
-    this.camera.aspect = w / h
+    const aspect = w / Math.max(h, 1)
+    this.camera.left = (-ISO_FRUSTUM * aspect) / 2
+    this.camera.right = (ISO_FRUSTUM * aspect) / 2
+    this.camera.top = ISO_FRUSTUM / 2
+    this.camera.bottom = -ISO_FRUSTUM / 2
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(w, h)
     this.composer.setSize(w, h)
@@ -1196,22 +1021,18 @@ export class Game {
   // ── Beweging & camera ───────────────────────────────────────────────────
 
   private updatePlayer(dt: number) {
-    if (!this.playerMixer) return
-
-    const forward = new THREE.Vector3(Math.sin(this.aimYaw), 0, Math.cos(this.aimYaw))
-    const right = new THREE.Vector3(Math.cos(this.aimYaw), 0, -Math.sin(this.aimYaw))
+    this.updateAimFromMouse()
 
     const wish = new THREE.Vector3()
-    if (this.keys.w) wish.add(forward)
-    if (this.keys.s) wish.sub(forward)
-    if (this.keys.a) wish.add(right)
-    if (this.keys.d) wish.sub(right)
+    if (this.keys.w) wish.add(ISO_FORWARD)
+    if (this.keys.s) wish.sub(ISO_FORWARD)
+    if (this.keys.d) wish.add(ISO_RIGHT)
+    if (this.keys.a) wish.sub(ISO_RIGHT)
 
     const maxSpeed = this.keys.sprint && this.keys.w ? SPRINT_SPEED : WALK_SPEED
     const hasInput = wish.lengthSq() > 0
     if (hasInput) wish.normalize().multiplyScalar(maxSpeed)
 
-    // Soepel accelereren/afremmen — geen abrupt starten of stoppen
     const lambda = hasInput ? ACCEL : DECEL
     const blend = 1 - Math.exp(-lambda * dt)
     this.velocity.lerp(wish, blend)
@@ -1225,119 +1046,58 @@ export class Game {
       this.player.position.z, -PLAYER_LIMIT_Z, PLAYER_LIMIT_Z
     )
 
-    // Lichaam draait vloeiend mee met de aim-richting
-    this.player.rotation.y = dampAngle(this.player.rotation.y, this.aimYaw, 16, dt)
+    const dx = this.aimPoint.x - this.player.position.x
+    const dz = this.aimPoint.z - this.player.position.z
+    if (dx * dx + dz * dz > 0.04) {
+      this.aimYaw = Math.atan2(dx, dz)
+      this.player.rotation.y = dampAngle(this.player.rotation.y, this.aimYaw, 18, dt)
+    }
 
     const speed = this.velocity.length()
     const speedRatio = speed / SPRINT_SPEED
     const moving = speed > 0.12
-    const hasLocomotion = !!(this.playerAnims.idle || this.playerAnims.walk || this.playerAnims.run)
 
-    if (hasLocomotion) {
-      if (moving && this.keys.sprint && this.keys.w && this.playerAnims.run) {
-        this.fadePlayerAnim('run')
-        this.playerMixer.timeScale = THREE.MathUtils.lerp(0.95, 1.2, speedRatio)
-      } else if (moving && this.playerAnims.walk) {
-        this.fadePlayerAnim('walk')
-        this.playerMixer.timeScale = THREE.MathUtils.lerp(0.85, 1.05, speedRatio)
-      } else if (this.playerAnims.idle) {
-        this.fadePlayerAnim('idle')
-        this.playerMixer.timeScale = 1
-      }
+    if (moving) {
+      this.walkPhase += dt * (6 + speedRatio * 5)
+      const swing = Math.sin(this.walkPhase) * 0.42 * Math.min(speedRatio * 2, 1)
+      this.legL.rotation.x = swing
+      this.legR.rotation.x = -swing
+      this.playerBody.position.y = Math.abs(Math.sin(this.walkPhase * 2)) * 0.035 * Math.min(speedRatio * 2, 1)
+    } else {
+      this.legL.rotation.x = THREE.MathUtils.damp(this.legL.rotation.x, 0, 12, dt)
+      this.legR.rotation.x = THREE.MathUtils.damp(this.legR.rotation.x, 0, 12, dt)
+      this.playerBody.position.y = THREE.MathUtils.damp(this.playerBody.position.y, 0, 12, dt)
     }
 
-    // Custom aim/shoot animaties uit Blender
-    if (this.playerAnims.aim && this.pointerLocked) {
-      if (this.firing && this.playerAnims.shoot) {
-        const shoot = this.playerAnims.shoot
-        if (!shoot.isRunning() || shoot.time === 0) {
-          shoot.reset().setEffectiveWeight(1).play()
-        }
-      } else {
-        this.playerAnims.aim.setEffectiveWeight(
-          THREE.MathUtils.damp(this.playerAnims.aim.getEffectiveWeight(), 1, 8, dt),
-        )
-        if (!this.playerAnims.aim.isRunning()) this.playerAnims.aim.play()
-      }
-    }
-
-    this.playerMixer.update(dt)
-
-    // Aim-pose via code alleen als GLB geen aim/shoot clips heeft
-    if (this.useProceduralAim) {
-      const aimTarget = this.pointerLocked ? (this.firing ? 1 : 0.82) : 0
-      const aimSpeed = this.firing ? 18 : 10
-      this.aimBlend = THREE.MathUtils.damp(this.aimBlend, aimTarget, aimSpeed, dt)
-      this.applyPlayerAimPose(this.aimBlend)
-    }
-
-    this.updatePlayerSkeleton()
-
-    this.playerBody.position.y = Math.abs(Math.sin(this.clock.elapsedTime * (6 + speedRatio * 4))) * 0.028 * Math.min(speedRatio * 2, 1)
-
-    // In de bocht/strafe leunen — voelt vloeiend en dynamisch
     const localVel = this.velocity.clone().applyAxisAngle(
       new THREE.Vector3(0, 1, 0), -this.player.rotation.y
     )
-    const targetLeanZ = THREE.MathUtils.clamp(-localVel.x * 0.035, -0.16, 0.16)
-    const targetLeanX = THREE.MathUtils.clamp(localVel.z * 0.028, -0.14, 0.14)
+    const targetLeanZ = THREE.MathUtils.clamp(-localVel.x * 0.035, -0.12, 0.12)
+    const targetLeanX = THREE.MathUtils.clamp(localVel.z * 0.028, -0.1, 0.1)
     this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 10, dt)
     this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, targetLeanX, 10, dt)
 
-    // Recoil op wapen (hand-bone volgt aim-pose)
     this.gunKick = Math.max(0, this.gunKick - dt * 6)
-    if (this.gunHolder && !this.modelHasEmbeddedWeapon) {
-      this.gunHolder.rotation.x = -1.25 - this.aimPitch * 0.35 - this.gunKick * 0.4
-      this.gun.rotation.x = -this.gunKick * 0.5
-    }
-
-    if (this.muzzleLight) {
-      this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 260)
-    }
+    this.gunHolder.rotation.x = THREE.MathUtils.damp(
+      this.gunHolder.rotation.x,
+      -0.35 - this.gunKick * 0.35,
+      14,
+      dt,
+    )
+    this.gun.rotation.x = -this.gunKick * 0.5
+    this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 260)
   }
 
   private updateCamera(dt: number) {
-    // Focuspunt loopt de speler soepel achterna
-    this.camFocus.x = THREE.MathUtils.damp(this.camFocus.x, this.player.position.x, CAM_FOLLOW, dt)
-    this.camFocus.z = THREE.MathUtils.damp(this.camFocus.z, this.player.position.z, CAM_FOLLOW, dt)
+    this.camFocus.x = THREE.MathUtils.damp(this.camFocus.x, this.player.position.x, ISO_FOLLOW, dt)
+    this.camFocus.z = THREE.MathUtils.damp(this.camFocus.z, this.player.position.z, ISO_FOLLOW, dt)
 
-    const cosP = Math.cos(this.aimPitch)
-    const desired = new THREE.Vector3(
-      this.camFocus.x - Math.sin(this.aimYaw) * CAM_DIST * cosP,
-      CAM_HEIGHT + Math.sin(this.aimPitch) * CAM_DIST * 0.9,
-      this.camFocus.z - Math.cos(this.aimYaw) * CAM_DIST * cosP
+    this.camera.position.set(
+      this.camFocus.x + ISO_CAM_OFFSET.x,
+      ISO_CAM_OFFSET.y,
+      this.camFocus.z + ISO_CAM_OFFSET.z,
     )
-
-    // Camera niet door gebouwen laten clippen
-    const focusPoint = new THREE.Vector3(this.camFocus.x, 1.6, this.camFocus.z)
-    const toCam = desired.clone().sub(focusPoint)
-    const dist = toCam.length()
-    this.raycaster.set(focusPoint, toCam.clone().normalize())
-    this.raycaster.far = dist
-    const blocked = this.raycaster.intersectObjects(this.worldColliders, false)
-    if (blocked.length > 0) {
-      desired.copy(focusPoint).addScaledVector(toCam.normalize(), Math.max(blocked[0].distance - 0.3, 1.2))
-    }
-    this.camera.position.copy(desired)
-
-    // Kijk iets vóór de speler in de aim-richting: GTA-gevoel
-    const lookAhead = new THREE.Vector3(
-      Math.sin(this.aimYaw) * 2 * cosP,
-      1.5 - Math.sin(this.aimPitch) * 2.4,
-      Math.cos(this.aimYaw) * 2 * cosP
-    )
-    this.camera.lookAt(
-      this.camFocus.x + lookAhead.x,
-      lookAhead.y,
-      this.camFocus.z + lookAhead.z
-    )
-
-    // Sprint = subtiel wijdere FOV
-    const targetFov = this.keys.sprint && this.keys.w && this.velocity.length() > 4
-      ? FOV_SPRINT
-      : FOV_WALK
-    this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 6, dt)
-    this.camera.updateProjectionMatrix()
+    this.camera.lookAt(this.camFocus.x, 1.2, this.camFocus.z)
   }
 
   // ── Schieten ────────────────────────────────────────────────────────────
@@ -1398,8 +1158,10 @@ export class Game {
   }
 
   private shoot() {
-    // Richten door het midden van het scherm (crosshair)
-    this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera)
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    _mouseNdc.x = ((this.mouseScreen.x - rect.left) / rect.width) * 2 - 1
+    _mouseNdc.y = -((this.mouseScreen.y - rect.top) / rect.height) * 2 + 1
+    this.raycaster.setFromCamera(_mouseNdc, this.camera)
     this.raycaster.far = GUN_RANGE
     const hits = this.raycaster.intersectObjects(
       [...this.enemyHitMeshes, ...this.worldColliders],
@@ -1423,8 +1185,6 @@ export class Game {
       endPoint = this.raycaster.ray.at(GUN_RANGE * 0.7, new THREE.Vector3())
     }
 
-    // Aim-assist: net naast een vijand mikken telt alsnog, zolang er
-    // niets dichterbij in de baan van het schot zit.
     if (!hitEnemy) {
       const blockDist = firstHit ? firstHit.distance : GUN_RANGE
       const toEnemy = new THREE.Vector3()
@@ -1448,12 +1208,8 @@ export class Game {
 
     this.spawnTracer(muzzlePos, endPoint)
     this.spawnSparks(endPoint, hitEnemy ? 0xff5577 : 0x7dfcff)
-    if (this.muzzleLight) this.muzzleLight.intensity = 22
+    this.muzzleLight.intensity = 22
     this.gunKick = Math.min(this.gunKick + 0.55, 1)
-
-    if (this.playerAnims.shoot) {
-      this.playerAnims.shoot.reset().setEffectiveWeight(1).fadeIn(0.06).play()
-    }
 
     if (hitEnemy) {
       hitEnemy.hp -= 1
