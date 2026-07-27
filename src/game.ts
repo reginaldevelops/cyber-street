@@ -701,8 +701,8 @@ export class Game {
     const wish = new THREE.Vector3()
     if (this.keys.w) wish.add(forward)
     if (this.keys.s) wish.sub(forward)
-    if (this.keys.a) wish.sub(right)
-    if (this.keys.d) wish.add(right)
+    if (this.keys.a) wish.add(right)
+    if (this.keys.d) wish.sub(right)
 
     const maxSpeed = this.keys.sprint && this.keys.w ? SPRINT_SPEED : WALK_SPEED
     const hasInput = wish.lengthSq() > 0
