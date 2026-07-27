@@ -1,0 +1,20 @@
+{
+  "name": "cyber-street",
+  "description": "Browser cyberpunk third-person shooter prototype — one neon street, WASD + mouse aim",
+  "private": false,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.1",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "three": "^0.175.0"
+  }
+}
