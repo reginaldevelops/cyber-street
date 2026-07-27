@@ -4,6 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
@@ -39,6 +40,29 @@ const ENEMY_RESPAWN = 2.6
 const NEON_CYAN = 0x00f6ff
 const NEON_PINK = 0xff2d95
 const NEON_YELLOW = 0xffe14d
+const DEFAULT_PLAYER_MODEL_URL = '/models/player.glb'
+const PLAYER_TARGET_HEIGHT = 1.78
+
+/** Lokaal bestand, of externe URL via ?glb=https://... in de adresbalk. */
+function resolvePlayerModelUrl(): string {
+  const params = new URLSearchParams(window.location.search)
+  const external = params.get('glb') ?? params.get('model')
+  if (external) return decodeURIComponent(external)
+  return DEFAULT_PLAYER_MODEL_URL
+}
+
+type PlayerAnim = 'idle' | 'walk' | 'run' | 'aim' | 'shoot' | 'draw'
+
+/** Zoek animatieclip op fuzzy naam (Mixamo, Blender, etc.). */
+function findAnimClip(clips: THREE.AnimationClip[], ...patterns: RegExp[]): THREE.AnimationClip | undefined {
+  for (const pat of patterns) {
+    const hit = clips.find((c) => pat.test(c.name))
+    if (hit) return hit
+  }
+  return undefined
+}
+
+const NEON_ORANGE = 0xff6622
 
 type Keys = { w: boolean; a: boolean; s: boolean; d: boolean; sprint: boolean }
 
@@ -75,6 +99,10 @@ function dampAngle(current: number, target: number, lambda: number, dt: number) 
   return current + delta * (1 - Math.exp(-lambda * dt))
 }
 
+const _aimQuat = new THREE.Quaternion()
+const _aimEuler = new THREE.Euler()
+const _animQuat = new THREE.Quaternion()
+
 export class Game {
   private container: HTMLElement
   private hintEl: HTMLElement
@@ -91,16 +119,32 @@ export class Game {
   // Speler
   private player = new THREE.Group()
   private playerBody = new THREE.Group() // bob + lean
-  private legL!: THREE.Group
-  private legR!: THREE.Group
-  private armL!: THREE.Group
-  private armR!: THREE.Group
+  private playerModel!: THREE.Group
+  private playerMixer!: THREE.AnimationMixer
+  private playerAnims: Partial<Record<PlayerAnim, THREE.AnimationAction>> = {}
+  private playerAnim: PlayerAnim = 'idle'
+  private playerSkinnedMeshes: THREE.SkinnedMesh[] = []
+  private useProceduralAim = true
+  private modelHasEmbeddedWeapon = false
+  private gunHolder!: THREE.Group
+  private aimBlend = 0
+  private aimBones = {
+    spine: null as THREE.Bone | null,
+    spine1: null as THREE.Bone | null,
+    spine2: null as THREE.Bone | null,
+    neck: null as THREE.Bone | null,
+    rightShoulder: null as THREE.Bone | null,
+    rightArm: null as THREE.Bone | null,
+    rightForeArm: null as THREE.Bone | null,
+    leftShoulder: null as THREE.Bone | null,
+    leftArm: null as THREE.Bone | null,
+    leftForeArm: null as THREE.Bone | null,
+  }
   private gun!: THREE.Group
   private muzzle = new THREE.Object3D()
   private muzzleLight!: THREE.PointLight
 
   private velocity = new THREE.Vector3()
-  private walkPhase = 0
   private gunKick = 0
 
   // Camera / input
@@ -138,29 +182,44 @@ export class Game {
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 0.95
+    this.renderer.toneMappingExposure = 1.38
     container.appendChild(this.renderer.domElement)
 
     const pmrem = new THREE.PMREMGenerator(this.renderer)
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
-    this.scene.environmentIntensity = 0.1
+    this.scene.environmentIntensity = 0.28
 
     this.setupPost()
     this.buildWorld()
-    this.buildPlayer()
     this.buildEnemies()
     this.bindEvents()
     this.onResize()
+    void this.bootstrap()
     window.addEventListener('resize', () => this.onResize())
+    ;(window as unknown as { __game: Game }).__game = this
+  }
+
+  private async bootstrap() {
+    this.hintEl.textContent = 'Character laden…'
+    try {
+      await this.loadPlayerModel()
+    } catch (err) {
+      console.error(err)
+      this.hintEl.textContent = 'Kon character niet laden — refresh de pagina'
+      return
+    }
+    this.hintEl.innerHTML =
+      'Klik om te spelen · <b>WASD</b> lopen · <b>Shift</b> sprinten · <b>Muis</b> mikken · <b>Klik</b> schieten'
+    this.camFocus.copy(this.player.position)
+    this.updateCamera(0)
     this.clock.start()
     this.animate()
-    ;(window as unknown as { __game: Game }).__game = this
   }
 
   private setupPost() {
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.5, 0.72)
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.48, 0.48, 0.82)
     this.composer.addPass(this.bloom)
     this.composer.addPass(new OutputPass())
   }
@@ -168,13 +227,15 @@ export class Game {
   // ── Wereld ──────────────────────────────────────────────────────────────
 
   private buildWorld() {
-    this.scene.background = new THREE.Color(0x05030d)
-    this.scene.fog = new THREE.FogExp2(0x0d0618, 0.026)
+    this.scene.background = new THREE.Color(0x141024)
+    this.scene.fog = new THREE.FogExp2(0x221636, 0.014)
 
-    const hemi = new THREE.HemisphereLight(0x3a5bbf, 0x14020c, 0.5)
+    this.scene.add(new THREE.AmbientLight(0x665577, 0.42))
+
+    const hemi = new THREE.HemisphereLight(0x8aadff, 0x281018, 0.82)
     this.scene.add(hemi)
 
-    const moon = new THREE.DirectionalLight(0x8fa0ff, 0.5)
+    const moon = new THREE.DirectionalLight(0xb8c4ff, 0.78)
     moon.position.set(-14, 26, -10)
     moon.castShadow = true
     moon.shadow.mapSize.set(2048, 2048)
@@ -186,11 +247,15 @@ export class Game {
     moon.shadow.camera.bottom = -34
     this.scene.add(moon)
 
-    // Natte weg — laag ruw + env-reflectie geeft de "regen op asfalt" look
+    const fill = new THREE.DirectionalLight(0xff88cc, 0.22)
+    fill.position.set(8, 10, 14)
+    this.scene.add(fill)
+
+    // Natte weg — iets lichter zodat neon reflecties zichtbaar blijven
     const roadMat = new THREE.MeshStandardMaterial({
-      color: 0x0a0810,
-      roughness: 0.42,
-      metalness: 0.45,
+      color: 0x18141f,
+      roughness: 0.38,
+      metalness: 0.42,
     })
     const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_WIDTH, STREET_LENGTH), roadMat)
     road.rotation.x = -Math.PI / 2
@@ -213,9 +278,9 @@ export class Game {
 
     // Stoepen met neon-stoepranden
     const walkMat = new THREE.MeshStandardMaterial({
-      color: 0x16121f,
-      roughness: 0.6,
-      metalness: 0.25,
+      color: 0x221c2a,
+      roughness: 0.55,
+      metalness: 0.22,
     })
     for (const side of [-1, 1]) {
       const walk = new THREE.Mesh(
@@ -238,14 +303,8 @@ export class Game {
       this.flickerMats.push({ mat: curbMat, base: 2.4, t: Math.random() * 5 })
     }
 
-    // Gebouwen
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: 0x191225,
-      roughness: 0.82,
-      metalness: 0.18,
-    })
-    const buildingDepth = 6
-    const buildingX = HALF_ROAD + SIDEWALK_W + buildingDepth / 2
+    // Gebouwen — variatie per blok
+    const buildingX = HALF_ROAD + SIDEWALK_W + 3
     const count = 8
     for (let i = 0; i < count; i++) {
       const z = THREE.MathUtils.lerp(
@@ -253,10 +312,13 @@ export class Game {
         STREET_LENGTH / 2 - 4,
         i / (count - 1)
       )
-      const h = 5 + ((i * 17) % 5) * 1.7
-      this.addBuilding(-buildingX, z, buildingDepth, h, 6, wallMat, i % 2 ? NEON_CYAN : NEON_YELLOW)
-      this.addBuilding(buildingX, z, buildingDepth, h + 1.2, 6, wallMat, i % 2 ? NEON_PINK : NEON_CYAN)
+      this.addDetailedBuilding(-buildingX, z, -1, i)
+      this.addDetailedBuilding(buildingX, z, 1, i + 17)
     }
+
+    this.addStreetProps()
+
+    const glowTex = this.makeGlowTexture()
 
     // Straatverlichting (neon points)
     const lights: [number, number, number][] = [
@@ -265,14 +327,12 @@ export class Game {
       [-HALF_ROAD - 1, 3.6, 20],
       [HALF_ROAD + 1, 3.6, -26],
     ]
-    const glowTex = this.makeGlowTexture()
     lights.forEach(([x, y, z], i) => {
       const color = i % 2 ? NEON_PINK : NEON_CYAN
-      const light = new THREE.PointLight(color, 14, 20, 2)
+      const light = new THREE.PointLight(color, 20, 24, 1.8)
       light.position.set(x, y, z)
       this.scene.add(light)
 
-      // Nep natte-straat reflectie onder elke lamp
       const glow = new THREE.Mesh(
         new THREE.PlaneGeometry(3.4, 9),
         new THREE.MeshBasicMaterial({
@@ -342,15 +402,36 @@ export class Game {
     this.scene.add(this.rain)
   }
 
-  private addBuilding(
-    x: number,
-    z: number,
-    depth: number,
-    height: number,
-    width: number,
-    wallMat: THREE.Material,
-    neonColor: number
-  ) {
+  private addDetailedBuilding(x: number, z: number, side: number, seed: number) {
+    const rng = (n: number) => {
+      const v = Math.sin(seed * 127.1 + n * 311.7) * 43758.5453
+      return v - Math.floor(v)
+    }
+
+    const variant = seed % 4
+    const height = 5.2 + (seed % 5) * 1.55 + (variant === 3 ? 2.2 : 0)
+    const width = 5.2 + (variant === 1 ? 1.4 : 0) + rng(1) * 0.8
+    const depth = 5 + (variant === 2 ? 1.8 : 0) + rng(2) * 0.6
+    const wallHue = 0x2a2436 + Math.floor(rng(3) * 0x050508)
+    const accentColors = [NEON_CYAN, NEON_PINK, NEON_YELLOW, 0x9a86ff]
+    const neonColor = accentColors[seed % accentColors.length]
+
+    const wallMat = new THREE.MeshStandardMaterial({
+      color: wallHue,
+      roughness: 0.72 + rng(4) * 0.12,
+      metalness: 0.14 + rng(5) * 0.1,
+    })
+    const trimMat = new THREE.MeshStandardMaterial({
+      color: 0x3a3448,
+      roughness: 0.55,
+      metalness: 0.35,
+    })
+    const metalMat = new THREE.MeshStandardMaterial({
+      color: 0x4a5058,
+      roughness: 0.35,
+      metalness: 0.75,
+    })
+
     const body = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), wallMat)
     body.position.set(x, height / 2, z)
     body.castShadow = true
@@ -358,26 +439,76 @@ export class Game {
     this.scene.add(body)
     this.worldColliders.push(body)
 
-    const faceX = x > 0 ? -1 : 1
-    const faceWorldX = x + faceX * (width / 2 + 0.08)
+    // Dakrand + rand details
+    const roofTrim = new THREE.Mesh(new THREE.BoxGeometry(width + 0.12, 0.1, depth + 0.12), trimMat)
+    roofTrim.position.set(x, height + 0.04, z)
+    this.scene.add(roofTrim)
 
-    // Neon uithangbord
+    const faceX = side > 0 ? -1 : 1
+    const faceWorldX = x + faceX * (width / 2 + 0.06)
+
+    // Ground floor plint (donkerder)
+    const plinthH = variant === 1 ? 1.35 : 0.85
+    const plinth = new THREE.Mesh(
+      new THREE.BoxGeometry(width + 0.04, plinthH, depth + 0.06),
+      new THREE.MeshStandardMaterial({ color: 0x1a1622, roughness: 0.85, metalness: 0.1 })
+    )
+    plinth.position.set(x, plinthH / 2, z)
+    plinth.receiveShadow = true
+    this.scene.add(plinth)
+
+    // Neon uithangbord — per variant anders
     const neonMat = new THREE.MeshStandardMaterial({
       color: neonColor,
       emissive: neonColor,
-      emissiveIntensity: 2.6,
-      roughness: 0.4,
-      metalness: 0.2,
+      emissiveIntensity: 2.4,
+      roughness: 0.35,
+      metalness: 0.25,
     })
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.28, depth * 0.62), neonMat)
-    sign.position.set(faceWorldX, height * 0.68, z)
-    this.scene.add(sign)
-    this.flickerMats.push({ mat: neonMat, base: 2.6, t: Math.random() * 6 })
+    if (variant === 1) {
+      // Winkel: groot horizontaal bord
+      const sign = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.35, depth * 0.75), neonMat)
+      sign.position.set(faceWorldX, plinthH + 0.55, z)
+      this.scene.add(sign)
+      const awning = new THREE.Mesh(
+        new THREE.BoxGeometry(0.08, 0.04, depth * 0.82),
+        new THREE.MeshStandardMaterial({ color: 0x1a1420, roughness: 0.8, metalness: 0.1 })
+      )
+      awning.position.set(faceWorldX + faceX * 0.18, plinthH + 0.95, z)
+      this.scene.add(awning)
+    } else if (variant === 2) {
+      // Industrieel: verticale neon strip
+      const sign = new THREE.Mesh(new THREE.BoxGeometry(0.08, height * 0.55, 0.14), neonMat)
+      sign.position.set(faceWorldX, height * 0.52, z)
+      this.scene.add(sign)
+      // Buizen langs gevel
+      for (let p = 0; p < 3; p++) {
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, height * 0.7, 6), metalMat)
+        pipe.position.set(faceWorldX + faceX * 0.04, height * 0.45, z - depth / 2 + 1 + p * (depth - 2) / 2)
+        this.scene.add(pipe)
+      }
+    } else {
+      const sign = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, depth * 0.55), neonMat)
+      sign.position.set(faceWorldX, height * 0.62 + rng(6) * 0.4, z)
+      this.scene.add(sign)
+    }
+    this.flickerMats.push({ mat: neonMat, base: 2.4, t: rng(7) * 6 })
 
-    // Verlichte raampjes op de straatkant
-    const windowGeo = new THREE.PlaneGeometry(0.42, 0.3)
-    const rows = Math.max(2, Math.floor(height / 1.6))
-    const cols = 4
+    // Balkons / vensterbanken (tower & standard)
+    if (variant === 0 || variant === 3) {
+      const rows = Math.floor(height / 2.2)
+      for (let r = 1; r < rows; r++) {
+        if (rng(10 + r) > 0.45) continue
+        const ledge = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, depth * 0.35), trimMat)
+        ledge.position.set(faceWorldX, 1.4 + r * 2, z + (rng(11 + r) - 0.5) * depth * 0.25)
+        this.scene.add(ledge)
+      }
+    }
+
+    // Ramen op straatkant
+    const windowGeo = new THREE.PlaneGeometry(0.38, 0.28)
+    const rows = Math.max(2, Math.floor((height - plinthH) / 1.45))
+    const cols = variant === 1 ? 5 : 4
     const windowMesh = new THREE.InstancedMesh(
       windowGeo,
       new THREE.MeshBasicMaterial({ color: 0xffffff }),
@@ -385,26 +516,104 @@ export class Game {
     )
     const dummy = new THREE.Object3D()
     const color = new THREE.Color()
-    const palette = [0x37e0ff, 0xff5aad, 0xffd76b, 0x9a86ff]
+    const palette = [0x37e0ff, 0xff5aad, 0xffd76b, 0x9a86ff, 0xaaffcc]
     let idx = 0
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         dummy.position.set(
           faceWorldX + faceX * 0.02,
-          1.2 + r * 1.5,
-          z - depth / 2 + 0.9 + c * ((depth - 1.8) / (cols - 1))
+          plinthH + 0.55 + r * 1.45,
+          z - depth / 2 + 0.85 + c * ((depth - 1.7) / (cols - 1))
         )
         dummy.rotation.y = faceX > 0 ? Math.PI / 2 : -Math.PI / 2
         dummy.updateMatrix()
         windowMesh.setMatrixAt(idx, dummy.matrix)
-        const lit = Math.random() > 0.35
-        color.set(lit ? palette[Math.floor(Math.random() * palette.length)] : 0x080810)
-        if (lit) color.multiplyScalar(0.55 + Math.random() * 0.45)
+        const lit = rng(20 + idx) > 0.32
+        color.set(lit ? palette[Math.floor(rng(21 + idx) * palette.length)] : 0x18141f)
+        if (lit) color.multiplyScalar(0.75 + rng(22 + idx) * 0.45)
         windowMesh.setColorAt(idx, color)
         idx++
       }
     }
     this.scene.add(windowMesh)
+
+    // Dak-antenne / airco units
+    if (variant === 2 || variant === 3 || rng(8) > 0.5) {
+      const ac = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.45), metalMat)
+      ac.position.set(x + (rng(9) - 0.5) * width * 0.5, height + 0.18, z + (rng(12) - 0.5) * depth * 0.4)
+      this.scene.add(ac)
+    }
+    if (rng(13) > 0.55) {
+      const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.2, 6), metalMat)
+      antenna.position.set(x + (rng(14) - 0.5) * width * 0.35, height + 0.65, z)
+      this.scene.add(antenna)
+      const tip = new THREE.Mesh(
+        new THREE.SphereGeometry(0.04, 8, 8),
+        new THREE.MeshStandardMaterial({ color: neonColor, emissive: neonColor, emissiveIntensity: 2 })
+      )
+      tip.position.set(antenna.position.x, height + 1.28, z)
+      this.scene.add(tip)
+    }
+  }
+
+  private addStreetProps() {
+    const metalMat = new THREE.MeshStandardMaterial({
+      color: 0x3a4048,
+      roughness: 0.4,
+      metalness: 0.8,
+    })
+    const crateMat = new THREE.MeshStandardMaterial({ color: 0x2a2228, roughness: 0.85, metalness: 0.1 })
+    const dumpMat = new THREE.MeshStandardMaterial({ color: 0x1a3a32, roughness: 0.6, metalness: 0.35 })
+
+    const propSpots: [number, number][] = [
+      [-HALF_ROAD - 0.5, -18], [HALF_ROAD + 0.5, -6], [-HALF_ROAD - 0.5, 10],
+      [HALF_ROAD + 0.5, 22], [-HALF_ROAD - 0.5, -30], [HALF_ROAD + 0.5, 16],
+    ]
+    propSpots.forEach(([px, pz], i) => {
+      if (i % 3 === 0) {
+        const dumpster = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.65, 0.55), dumpMat)
+        dumpster.position.set(px, 0.38, pz)
+        dumpster.castShadow = true
+        this.scene.add(dumpster)
+        const lid = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.06, 0.57), metalMat)
+        lid.position.set(px, 0.72, pz)
+        this.scene.add(lid)
+      } else if (i % 3 === 1) {
+        for (let c = 0; c < 2 + (i % 2); c++) {
+          const crate = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, 0.45), crateMat)
+          crate.position.set(px + c * 0.5 - 0.25, 0.28 + c * 0.02, pz + (c % 2) * 0.15)
+          crate.rotation.y = c * 0.4
+          crate.castShadow = true
+          this.scene.add(crate)
+        }
+      } else {
+        // Stoom/rooster op stoep
+        const grate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.35), metalMat)
+        grate.position.set(px, 0.17, pz)
+        this.scene.add(grate)
+      }
+    })
+
+    // Neon lantaarnpalen
+    for (let lz = -STREET_LENGTH / 2 + 8; lz < STREET_LENGTH / 2; lz += 14) {
+      for (const sx of [-HALF_ROAD - SIDEWALK_W * 0.5, HALF_ROAD + SIDEWALK_W * 0.5]) {
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 2.8, 8), metalMat)
+        pole.position.set(sx, 1.5, lz)
+        pole.castShadow = true
+        this.scene.add(pole)
+        const lampColor = lz % 28 < 14 ? NEON_CYAN : NEON_PINK
+        const lamp = new THREE.Mesh(
+          new THREE.BoxGeometry(0.18, 0.08, 0.35),
+          new THREE.MeshStandardMaterial({
+            color: lampColor,
+            emissive: lampColor,
+            emissiveIntensity: 2,
+          })
+        )
+        lamp.position.set(sx, 2.85, lz)
+        this.scene.add(lamp)
+      }
+    }
   }
 
   private makeGlowTexture() {
@@ -442,120 +651,306 @@ export class Game {
 
   // ── Speler ──────────────────────────────────────────────────────────────
 
-  private buildPlayer() {
-    const coatMat = new THREE.MeshStandardMaterial({
-      color: 0x1c2438,
-      roughness: 0.5,
-      metalness: 0.4,
-    })
-    const skinMat = new THREE.MeshStandardMaterial({
-      color: 0x2e3950,
-      roughness: 0.55,
-      metalness: 0.3,
-    })
-    const cyanGlow = new THREE.MeshStandardMaterial({
-      color: NEON_CYAN,
-      emissive: NEON_CYAN,
-      emissiveIntensity: 1.6,
-      roughness: 0.3,
-      metalness: 0.4,
-    })
-    const pinkGlow = new THREE.MeshStandardMaterial({
-      color: NEON_PINK,
-      emissive: NEON_PINK,
-      emissiveIntensity: 1.4,
-      roughness: 0.3,
-      metalness: 0.4,
-    })
+  private buildUzi(metal: THREE.Material, gripMat: THREE.Material, neon: THREE.Material) {
+    const uzi = new THREE.Group()
 
-    // Torso + lange mafia-jas
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.33, 0.62, 6, 12), coatMat)
-    torso.position.y = 1.12
-    torso.castShadow = true
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.11, 0.28), metal)
+    receiver.position.set(0, 0, 0.02)
+    uzi.add(receiver)
 
-    const coat = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.44, 0.65, 10), coatMat)
-    coat.position.y = 0.62
-    coat.castShadow = true
-
-    // Neon strip over de rug
-    const spine = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.72, 0.04), pinkGlow)
-    spine.position.set(0, 1.12, -0.33)
-
-    // Hoofd + visor
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 16, 16), skinMat)
-    head.position.y = 1.78
-    head.castShadow = true
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.09, 0.16), cyanGlow)
-    visor.position.set(0, 1.8, 0.15)
-
-    // Schouderstukken
-    const shoulderGeo = new THREE.BoxGeometry(0.2, 0.12, 0.26)
-    const shoulderL = new THREE.Mesh(shoulderGeo, skinMat)
-    shoulderL.position.set(-0.42, 1.48, 0)
-    const shoulderR = shoulderL.clone()
-    shoulderR.position.x = 0.42
-    const padL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 0.28), cyanGlow)
-    padL.position.set(-0.42, 1.56, 0)
-    const padR = padL.clone()
-    padR.position.x = 0.42
-
-    // Benen (zwaaien tijdens lopen)
-    const legGeo = new THREE.BoxGeometry(0.16, 0.62, 0.18)
-    legGeo.translate(0, -0.31, 0)
-    this.legL = new THREE.Group()
-    this.legL.position.set(-0.16, 0.66, 0)
-    this.legL.add(new THREE.Mesh(legGeo, skinMat))
-    this.legR = new THREE.Group()
-    this.legR.position.set(0.16, 0.66, 0)
-    this.legR.add(new THREE.Mesh(legGeo, skinMat))
-    this.legL.children[0].castShadow = true
-    this.legR.children[0].castShadow = true
-
-    // Armen — rechts richt het wapen, links ondersteunt
-    const armGeo = new THREE.BoxGeometry(0.11, 0.5, 0.13)
-    armGeo.translate(0, -0.25, 0)
-    this.armR = new THREE.Group()
-    this.armR.position.set(0.42, 1.42, 0.05)
-    this.armR.rotation.x = -Math.PI / 2.25
-    this.armR.add(new THREE.Mesh(armGeo, coatMat))
-    this.armL = new THREE.Group()
-    this.armL.position.set(-0.42, 1.42, 0.05)
-    this.armL.rotation.x = -Math.PI / 2.5
-    this.armL.rotation.z = -0.5
-    this.armL.add(new THREE.Mesh(armGeo, coatMat))
-
-    // SMG
-    this.gun = new THREE.Group()
-    const gunBody = new THREE.Mesh(
-      new THREE.BoxGeometry(0.09, 0.14, 0.52),
-      new THREE.MeshStandardMaterial({ color: 0x11141c, roughness: 0.35, metalness: 0.75 })
-    )
-    const barrel = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.025, 0.025, 0.22, 8),
-      new THREE.MeshStandardMaterial({ color: 0x0c0e14, roughness: 0.3, metalness: 0.85 })
-    )
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.2, 10), metal)
     barrel.rotation.x = Math.PI / 2
-    barrel.position.set(0, 0.03, 0.34)
-    const cell = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.06, 0.2), cyanGlow)
-    cell.position.set(0, -0.02, 0.02)
-    this.gun.add(gunBody, barrel, cell)
-    this.gun.position.set(0.3, 1.28, 0.42)
-    this.muzzle.position.set(0, 0.03, 0.48)
-    this.gun.add(this.muzzle)
+    barrel.position.set(0, 0.02, 0.28)
+    uzi.add(barrel)
+    const comp = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.034, 0.04), metal)
+    comp.position.set(0, 0.02, 0.38)
+    uzi.add(comp)
 
-    this.muzzleLight = new THREE.PointLight(0x9fefff, 0, 7, 2)
-    this.muzzleLight.position.set(0.3, 1.3, 0.6)
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.14, 0.055), gripMat)
+    mag.position.set(0, -0.1, -0.02)
+    mag.rotation.x = 0.22
+    uzi.add(mag)
 
-    this.playerBody.add(
-      torso, coat, spine, head, visor,
-      shoulderL, shoulderR, padL, padR,
-      this.legL, this.legR, this.armL, this.armR,
-      this.gun, this.muzzleLight
-    )
-    this.player.add(this.playerBody)
-    this.player.position.set(0, 0, 6)
-    this.scene.add(this.player)
-    this.camFocus.copy(this.player.position)
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.11, 0.05), gripMat)
+    grip.position.set(0, -0.1, -0.1)
+    grip.rotation.x = 0.35
+    uzi.add(grip)
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.07, 0.16), metal)
+    stock.position.set(0, 0.01, -0.18)
+    uzi.add(stock)
+    const stockWireL = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.05, 0.12), metal)
+    stockWireL.position.set(-0.018, -0.02, -0.14)
+    stockWireL.rotation.z = 0.25
+    uzi.add(stockWireL)
+    const stockWireR = stockWireL.clone()
+    stockWireR.position.x = 0.018
+    stockWireR.rotation.z = -0.25
+    uzi.add(stockWireR)
+
+    const cover = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.025, 0.22), metal)
+    cover.position.set(0, 0.065, 0.02)
+    uzi.add(cover)
+    const charge = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.012, 0.03), metal)
+    charge.position.set(0.03, 0.07, 0.06)
+    uzi.add(charge)
+
+    const cell = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.018, 0.1), neon)
+    cell.position.set(0, -0.01, 0.04)
+    uzi.add(cell)
+
+    const foregrip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.07, 0.04), gripMat)
+    foregrip.position.set(0, -0.05, 0.14)
+    uzi.add(foregrip)
+
+    this.muzzle.position.set(0, 0.02, 0.42)
+    uzi.add(this.muzzle)
+    return uzi
+  }
+
+  private findBone(root: THREE.Object3D, pattern: RegExp): THREE.Bone | null {
+    let found: THREE.Bone | null = null
+    root.traverse((obj) => {
+      if (found || !(obj as THREE.Bone).isBone) return
+      if (pattern.test(obj.name)) found = obj as THREE.Bone
+    })
+    return found
+  }
+
+  private findBoneByName(root: THREE.Object3D, name: string): THREE.Bone | null {
+    let found: THREE.Bone | null = null
+    root.traverse((obj) => {
+      if (found || !(obj as THREE.Bone).isBone) return
+      if (obj.name === name) found = obj as THREE.Bone
+    })
+    return found
+  }
+
+  /** Blend huidige animatie-pose naar aim-pose op een bot (na mixer.update). */
+  private blendBoneTowardAim(bone: THREE.Bone, x: number, y: number, z: number, blend: number) {
+    if (blend <= 0.001) return
+    _animQuat.copy(bone.quaternion)
+    _aimEuler.set(x, y, z)
+    _aimQuat.setFromEuler(_aimEuler)
+    bone.quaternion.copy(_animQuat).slerp(_aimQuat, blend)
+  }
+
+  /** Tweehands aim-pose — armen omhoog, volgt pitch + recoil. */
+  private applyPlayerAimPose(blend: number) {
+    if (blend <= 0.001) return
+    const pitch = this.aimPitch + this.gunKick * 0.35
+    const kick = this.gunKick * 0.18
+
+    const { spine, spine1, spine2, neck, rightShoulder, rightArm, rightForeArm, leftShoulder, leftArm, leftForeArm } =
+      this.aimBones
+
+    if (spine) this.blendBoneTowardAim(spine, pitch * 0.08 + kick, 0, 0, blend)
+    if (spine1) this.blendBoneTowardAim(spine1, pitch * 0.12 + kick, 0, 0, blend)
+    if (spine2) this.blendBoneTowardAim(spine2, pitch * 0.2 + kick, 0, 0, blend)
+    if (neck) this.blendBoneTowardAim(neck, pitch * -0.06, 0, 0, blend * 0.65)
+
+    if (rightShoulder) this.blendBoneTowardAim(rightShoulder, 0.12, 0.05, -0.42, blend)
+    if (rightArm) this.blendBoneTowardAim(rightArm, -1.42 - pitch * 0.72, 0.08, -0.12, blend)
+    if (rightForeArm) this.blendBoneTowardAim(rightForeArm, -0.38 - pitch * 0.25, 0.42, 0.04, blend)
+
+    if (leftShoulder) this.blendBoneTowardAim(leftShoulder, 0.08, -0.04, 0.48, blend)
+    if (leftArm) this.blendBoneTowardAim(leftArm, -1.05 - pitch * 0.55, 0.32, 0.62, blend)
+    if (leftForeArm) this.blendBoneTowardAim(leftForeArm, -0.62, 0.22, 0.08, blend)
+  }
+
+  private findBoneBySuffix(root: THREE.Object3D, suffix: string): THREE.Bone | null {
+    const variants = [
+      suffix,
+      suffix.replace('.', ''),
+      `mixamorig:${suffix}`,
+      `mixamorig${suffix}`,
+      `mixamorig:${suffix.replace('.', '')}`,
+    ]
+    for (const name of variants) {
+      const bone = this.findBoneByName(root, name)
+      if (bone) return bone
+    }
+    return this.findBone(root, new RegExp(`${suffix.replace('.', '\\.')}$`, 'i'))
+  }
+
+  private resolveAimBones() {
+    this.aimBones.spine = this.findBoneBySuffix(this.playerModel, 'Spine')
+    this.aimBones.spine1 = this.findBoneBySuffix(this.playerModel, 'Spine1')
+    this.aimBones.spine2 = this.findBoneBySuffix(this.playerModel, 'Spine2')
+    this.aimBones.neck = this.findBoneBySuffix(this.playerModel, 'Neck')
+    this.aimBones.rightShoulder = this.findBoneBySuffix(this.playerModel, 'RightShoulder')
+    this.aimBones.rightArm = this.findBoneBySuffix(this.playerModel, 'RightArm')
+    this.aimBones.rightForeArm = this.findBoneBySuffix(this.playerModel, 'RightForeArm')
+    this.aimBones.leftShoulder = this.findBoneBySuffix(this.playerModel, 'LeftShoulder')
+    this.aimBones.leftArm = this.findBoneBySuffix(this.playerModel, 'LeftArm')
+    this.aimBones.leftForeArm = this.findBoneBySuffix(this.playerModel, 'LeftForeArm')
+  }
+
+  private updatePlayerSkeleton() {
+    for (const mesh of this.playerSkinnedMeshes) {
+      mesh.skeleton.update()
+    }
+  }
+
+  private setupPlayerAction(clip: THREE.AnimationClip, loop = true): THREE.AnimationAction {
+    const action = this.playerMixer.clipAction(clip)
+    action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
+    if (!loop) action.clampWhenFinished = true
+    action.enabled = true
+    action.setEffectiveWeight(0)
+    action.play()
+    return action
+  }
+
+  private setPlayerActionWeight(anim: PlayerAnim, weight: number) {
+    const action = this.playerAnims[anim]
+    if (action) action.setEffectiveWeight(weight)
+  }
+
+  private fadePlayerAnim(next: PlayerAnim, duration = 0.22) {
+    if (this.playerAnim === next) return
+    const from = this.playerAnims[this.playerAnim]
+    const to = this.playerAnims[next]
+    if (!to) return
+    if (from) from.fadeOut(duration)
+    to.reset().fadeIn(duration).play()
+    this.playerAnim = next
+  }
+
+  private loadPlayerModel(): Promise<void> {
+    const loader = new GLTFLoader()
+    const modelUrl = resolvePlayerModelUrl()
+    console.info('[Cyber Street] Model URL:', modelUrl)
+    return new Promise((resolve, reject) => {
+      loader.load(
+        modelUrl,
+        (gltf) => {
+          this.playerModel = gltf.scene
+          this.playerSkinnedMeshes = []
+          this.modelHasEmbeddedWeapon = false
+
+          this.playerModel.traverse((obj) => {
+            if ((obj as THREE.SkinnedMesh).isSkinnedMesh) {
+              this.playerSkinnedMeshes.push(obj as THREE.SkinnedMesh)
+            }
+            if ((obj as THREE.Mesh).isMesh && /gun|weapon|rifle|uzi|pistol|sword/i.test(obj.name)) {
+              this.modelHasEmbeddedWeapon = true
+            }
+          })
+
+          // Schaal zodat voeten op grond staan op ~1.78m lengte
+          const bounds = new THREE.Box3().setFromObject(this.playerModel)
+          const size = bounds.getSize(new THREE.Vector3())
+          const scale = PLAYER_TARGET_HEIGHT / Math.max(size.y, 0.001)
+          this.playerModel.scale.setScalar(scale)
+          bounds.setFromObject(this.playerModel)
+          this.playerModel.position.y = -bounds.min.y
+          this.playerModel.position.x -= (bounds.min.x + bounds.max.x) * 0.5
+          this.playerModel.position.z -= (bounds.min.z + bounds.max.z) * 0.5
+
+          // Mixamo/modellen kijken vaak -Z op; onze forward is +Z
+          this.playerModel.rotation.y = Math.PI
+
+          this.playerModel.traverse((obj) => {
+            if (!(obj as THREE.Mesh).isMesh) return
+            const mesh = obj as THREE.Mesh
+            mesh.castShadow = true
+            mesh.receiveShadow = true
+            mesh.frustumCulled = false
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+            for (const mat of mats) {
+              if (!(mat instanceof THREE.MeshStandardMaterial)) continue
+              mat.roughness = Math.min(mat.roughness + 0.08, 0.72)
+              mat.metalness = Math.max(mat.metalness, 0.18)
+              mat.envMapIntensity = 0.85
+            }
+          })
+
+          this.playerBody.add(this.playerModel)
+          this.player.add(this.playerBody)
+          this.player.position.set(0, 0, 6)
+          this.scene.add(this.player)
+
+          const clips = gltf.animations
+          console.info(
+            '[Cyber Street] GLB geladen — animaties:',
+            clips.length ? clips.map((c) => c.name) : '(geen — statisch model)',
+          )
+
+          this.playerMixer = new THREE.AnimationMixer(this.playerModel)
+
+          const idleClip = findAnimClip(clips, /^idle$/i, /idle/i)
+          const walkClip = findAnimClip(clips, /^walk$/i, /walk/i)
+          const runClip = findAnimClip(clips, /^run$/i, /run/i, /sprint/i)
+          const aimClip = findAnimClip(clips, /aim/i, /rifle/i, /gun_idle/i)
+          const shootClip = findAnimClip(clips, /shoot/i, /fire/i, /recoil/i)
+          const drawClip = findAnimClip(clips, /draw/i, /equip/i, /pull/i)
+
+          if (idleClip) {
+            this.playerAnims.idle = this.setupPlayerAction(idleClip)
+            this.setPlayerActionWeight('idle', 1)
+          }
+          if (walkClip) this.playerAnims.walk = this.setupPlayerAction(walkClip)
+          if (runClip) this.playerAnims.run = this.setupPlayerAction(runClip)
+          if (aimClip) this.playerAnims.aim = this.setupPlayerAction(aimClip)
+          if (shootClip) this.playerAnims.shoot = this.setupPlayerAction(shootClip, false)
+          if (drawClip) this.playerAnims.draw = this.setupPlayerAction(drawClip, false)
+
+          // Custom aim/shoot clips uit Blender → geen procedural arm-pose nodig
+          this.useProceduralAim = !aimClip && !shootClip && !drawClip
+
+          this.resolveAimBones()
+
+          const rightHand = this.findBoneBySuffix(this.playerModel, 'RightHand')
+
+          if (!this.modelHasEmbeddedWeapon) {
+            const metalGun = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.35, metalness: 0.9 })
+            const gripGun = new THREE.MeshStandardMaterial({ color: 0x141210, roughness: 0.78, metalness: 0.12 })
+            const neonGun = new THREE.MeshStandardMaterial({
+              color: NEON_ORANGE,
+              emissive: NEON_ORANGE,
+              emissiveIntensity: 0.9,
+              roughness: 0.35,
+              metalness: 0.45,
+            })
+
+            this.gun = this.buildUzi(metalGun, gripGun, neonGun)
+            this.gun.scale.setScalar(1.15)
+
+            this.gunHolder = new THREE.Group()
+            this.gunHolder.position.set(0.03, 0.09, 0.05)
+            this.gunHolder.rotation.set(-1.25, 0.12, 0.08)
+            this.gunHolder.add(this.gun)
+
+            if (rightHand) {
+              rightHand.add(this.gunHolder)
+            } else {
+              this.playerBody.add(this.gunHolder)
+              this.gunHolder.position.set(0.34, 1.18, 0.28)
+              console.warn('[Cyber Street] Geen RightHand bone — Uzi aan lichaam gehangen')
+            }
+
+            this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
+            this.gun.add(this.muzzleLight)
+            this.muzzleLight.position.set(0, 0.02, 0.42)
+          } else {
+            this.gun = new THREE.Group()
+            this.gunHolder = new THREE.Group()
+            this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
+            if (rightHand) {
+              this.muzzle = new THREE.Object3D()
+              this.muzzle.position.set(0, 0.05, 0.35)
+              rightHand.add(this.muzzle)
+            }
+            console.info('[Cyber Street] Wapen zit in GLB — geen extra Uzi')
+          }
+
+          resolve()
+        },
+        undefined,
+        reject,
+      )
+    })
   }
 
   // ── Vijanden ────────────────────────────────────────────────────────────
@@ -570,10 +965,26 @@ export class Game {
   }
 
   private makeEnemy(index: number): Enemy {
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: 0x261326,
-      roughness: 0.6,
-      metalness: 0.3,
+    const variant = index % 3
+    const accentColors = [NEON_PINK, NEON_CYAN, NEON_YELLOW]
+    const accent = accentColors[variant]
+
+    const chassisMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2830,
+      roughness: 0.45,
+      metalness: 0.72,
+      transparent: true,
+    })
+    const panelMat = new THREE.MeshStandardMaterial({
+      color: 0x3a3844,
+      roughness: 0.38,
+      metalness: 0.8,
+      transparent: true,
+    })
+    const jointMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1a22,
+      roughness: 0.3,
+      metalness: 0.9,
       transparent: true,
     })
     const visorMat = new THREE.MeshStandardMaterial({
@@ -582,35 +993,128 @@ export class Game {
       emissiveIntensity: 2.8,
       transparent: true,
     })
-    const finMat = new THREE.MeshStandardMaterial({
-      color: NEON_PINK,
-      emissive: NEON_PINK,
-      emissiveIntensity: 2.2,
+    const coreMat = new THREE.MeshStandardMaterial({
+      color: accent,
+      emissive: accent,
+      emissiveIntensity: 1.8,
+      transparent: true,
+    })
+    const darkMat = new THREE.MeshStandardMaterial({
+      color: 0x141418,
+      roughness: 0.55,
+      metalness: 0.65,
       transparent: true,
     })
 
     const root = new THREE.Group()
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.36, 0.66, 6, 12), bodyMat)
-    torso.position.y = 1.08
+    const scale = 0.95 + variant * 0.04
+
+    // Pelvis
+    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(0.32 * scale, 0.16, 0.2), chassisMat)
+    pelvis.position.y = 0.88
+    pelvis.castShadow = true
+
+    // Torso — layered plates
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38 * scale, 0.42, 0.22), panelMat)
+    torso.position.y = 1.18
     torso.castShadow = true
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 14), bodyMat)
-    head.position.y = 1.74
+    const chestPlate = new THREE.Mesh(new THREE.BoxGeometry(0.28 * scale, 0.22, 0.06), chassisMat)
+    chestPlate.position.set(0, 1.22, 0.12)
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10), coreMat)
+    core.position.set(0, 1.2, 0.16)
+
+    // Head — angular robot skull
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.22 * scale, 0.2, 0.2), panelMat)
+    head.position.y = 1.58
     head.castShadow = true
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.16), visorMat)
-    visor.position.set(0, 1.76, 0.16)
-    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.26, 0.3), finMat)
-    fin.position.set(0, 1.98, -0.02)
+    const skullBack = new THREE.Mesh(new THREE.BoxGeometry(0.18 * scale, 0.14, 0.08), darkMat)
+    skullBack.position.set(0, 1.6, -0.1)
+    const jawPlate = new THREE.Mesh(new THREE.BoxGeometry(0.16 * scale, 0.05, 0.12), chassisMat)
+    jawPlate.position.set(0, 1.48, 0.08)
 
-    root.add(torso, head, visor, fin)
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.2 * scale, 0.045, 0.04), visorMat)
+    visor.position.set(0, 1.6, 0.12)
+    const sensorL = new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 6), coreMat)
+    sensorL.position.set(-0.07, 1.54, 0.11)
+    const sensorR = sensorL.clone()
+    sensorR.position.x = 0.07
 
-    const hitMeshes = [torso, head]
+    const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.22, 6), jointMat)
+    antenna.position.set(0.08, 1.72, -0.04)
+    const antennaTip = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 6), coreMat)
+    antennaTip.position.set(0.08, 1.84, -0.04)
+
+    // Shoulder pauldrons
+    const pauldronL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.14), panelMat)
+    pauldronL.position.set(-0.26 * scale, 1.38, 0)
+    const pauldronR = pauldronL.clone()
+    pauldronR.position.x = 0.26 * scale
+
+    // Arms
+    const buildArm = (side: number) => {
+      const arm = new THREE.Group()
+      arm.position.set(side * 0.26 * scale, 1.32, 0)
+      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.26, 0.1), chassisMat)
+      upper.position.y = -0.13
+      const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), jointMat)
+      elbow.position.y = -0.28
+      const fore = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.24, 0.085), panelMat)
+      fore.position.y = -0.42
+      const claw = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, 0.06), darkMat)
+      claw.position.set(0, -0.56, 0.02)
+      for (let c = 0; c < 3; c++) {
+        const digit = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.04, 0.012), jointMat)
+        digit.position.set(-0.02 + c * 0.02, -0.59, 0.05)
+        arm.add(digit)
+      }
+      arm.add(upper, elbow, fore, claw)
+      return arm
+    }
+    const armL = buildArm(-1)
+    const armR = buildArm(1)
+
+    // Legs
+    const buildLeg = (side: number) => {
+      const leg = new THREE.Group()
+      leg.position.set(side * 0.1 * scale, 0.88, 0)
+      const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.3, 0.12), chassisMat)
+      thigh.position.y = -0.15
+      const knee = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), jointMat)
+      knee.position.y = -0.32
+      const shin = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.28, 0.1), panelMat)
+      shin.position.y = -0.46
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.2), darkMat)
+      foot.position.set(0, -0.62, 0.04)
+      const toeGlow = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 0.04), coreMat)
+      toeGlow.position.set(0, -0.62, 0.14)
+      leg.add(thigh, knee, shin, foot, toeGlow)
+      return leg
+    }
+    const legL = buildLeg(-1)
+    const legR = buildLeg(1)
+
+    // Back exhaust / spine
+    const spine = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.35, 0.08), darkMat)
+    spine.position.set(0, 1.15, -0.14)
+    const ventL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08, 0.02), coreMat)
+    ventL.position.set(-0.05, 1.22, -0.18)
+    const ventR = ventL.clone()
+    ventR.position.x = 0.05
+
+    root.add(
+      pelvis, torso, chestPlate, core, head, skullBack, jawPlate,
+      visor, sensorL, sensorR, antenna, antennaTip,
+      pauldronL, pauldronR, armL, armR, legL, legR, spine, ventL, ventR
+    )
+
+    const hitMeshes = [torso, head, chestPlate]
     for (const m of hitMeshes) m.userData.enemyIndex = index
     this.enemyHitMeshes.push(...hitMeshes)
 
     return {
       root,
       hitMeshes,
-      mats: [bodyMat, finMat],
+      mats: [chassisMat, panelMat, coreMat, darkMat],
       visorMat,
       hp: ENEMY_HP,
       state: 'alive',
@@ -638,7 +1142,7 @@ export class Game {
       enemy.root.position.z += enemy.root.position.z > this.player.position.z ? 10 : -10
     }
     for (const m of [...enemy.mats, enemy.visorMat]) m.opacity = 1
-    enemy.visorMat.emissiveIntensity = 2
+    enemy.visorMat.emissiveIntensity = 2.8
   }
 
   // ── Input ───────────────────────────────────────────────────────────────
@@ -692,14 +1196,16 @@ export class Game {
   // ── Beweging & camera ───────────────────────────────────────────────────
 
   private updatePlayer(dt: number) {
+    if (!this.playerMixer) return
+
     const forward = new THREE.Vector3(Math.sin(this.aimYaw), 0, Math.cos(this.aimYaw))
     const right = new THREE.Vector3(Math.cos(this.aimYaw), 0, -Math.sin(this.aimYaw))
 
     const wish = new THREE.Vector3()
     if (this.keys.w) wish.add(forward)
     if (this.keys.s) wish.sub(forward)
-    if (this.keys.d) wish.add(right)
-    if (this.keys.a) wish.sub(right)
+    if (this.keys.a) wish.add(right)
+    if (this.keys.d) wish.sub(right)
 
     const maxSpeed = this.keys.sprint && this.keys.w ? SPRINT_SPEED : WALK_SPEED
     const hasInput = wish.lengthSq() > 0
@@ -724,13 +1230,50 @@ export class Game {
 
     const speed = this.velocity.length()
     const speedRatio = speed / SPRINT_SPEED
+    const moving = speed > 0.12
+    const hasLocomotion = !!(this.playerAnims.idle || this.playerAnims.walk || this.playerAnims.run)
 
-    // Loopcyclus: benen zwaaien, lichte body-bob
-    this.walkPhase += speed * dt * 2.4
-    const swing = Math.sin(this.walkPhase) * Math.min(speedRatio * 1.6, 0.85)
-    this.legL.rotation.x = swing
-    this.legR.rotation.x = -swing
-    this.playerBody.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.055 * Math.min(speedRatio * 2, 1)
+    if (hasLocomotion) {
+      if (moving && this.keys.sprint && this.keys.w && this.playerAnims.run) {
+        this.fadePlayerAnim('run')
+        this.playerMixer.timeScale = THREE.MathUtils.lerp(0.95, 1.2, speedRatio)
+      } else if (moving && this.playerAnims.walk) {
+        this.fadePlayerAnim('walk')
+        this.playerMixer.timeScale = THREE.MathUtils.lerp(0.85, 1.05, speedRatio)
+      } else if (this.playerAnims.idle) {
+        this.fadePlayerAnim('idle')
+        this.playerMixer.timeScale = 1
+      }
+    }
+
+    // Custom aim/shoot animaties uit Blender
+    if (this.playerAnims.aim && this.pointerLocked) {
+      if (this.firing && this.playerAnims.shoot) {
+        const shoot = this.playerAnims.shoot
+        if (!shoot.isRunning() || shoot.time === 0) {
+          shoot.reset().setEffectiveWeight(1).play()
+        }
+      } else {
+        this.playerAnims.aim.setEffectiveWeight(
+          THREE.MathUtils.damp(this.playerAnims.aim.getEffectiveWeight(), 1, 8, dt),
+        )
+        if (!this.playerAnims.aim.isRunning()) this.playerAnims.aim.play()
+      }
+    }
+
+    this.playerMixer.update(dt)
+
+    // Aim-pose via code alleen als GLB geen aim/shoot clips heeft
+    if (this.useProceduralAim) {
+      const aimTarget = this.pointerLocked ? (this.firing ? 1 : 0.82) : 0
+      const aimSpeed = this.firing ? 18 : 10
+      this.aimBlend = THREE.MathUtils.damp(this.aimBlend, aimTarget, aimSpeed, dt)
+      this.applyPlayerAimPose(this.aimBlend)
+    }
+
+    this.updatePlayerSkeleton()
+
+    this.playerBody.position.y = Math.abs(Math.sin(this.clock.elapsedTime * (6 + speedRatio * 4))) * 0.028 * Math.min(speedRatio * 2, 1)
 
     // In de bocht/strafe leunen — voelt vloeiend en dynamisch
     const localVel = this.velocity.clone().applyAxisAngle(
@@ -741,14 +1284,16 @@ export class Game {
     this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 10, dt)
     this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, targetLeanX, 10, dt)
 
-    // Wapen volgt de pitch een beetje + recoil-herstel
+    // Recoil op wapen (hand-bone volgt aim-pose)
     this.gunKick = Math.max(0, this.gunKick - dt * 6)
-    this.gun.rotation.x = -this.aimPitch * 0.55 - this.gunKick * 0.7
-    this.gun.position.z = 0.42 - this.gunKick * 0.1
-    this.armR.rotation.x = -Math.PI / 2.25 - this.aimPitch * 0.5 - this.gunKick * 0.5
-    this.armL.rotation.x = -Math.PI / 2.5 - this.aimPitch * 0.5
+    if (this.gunHolder && !this.modelHasEmbeddedWeapon) {
+      this.gunHolder.rotation.x = -1.25 - this.aimPitch * 0.35 - this.gunKick * 0.4
+      this.gun.rotation.x = -this.gunKick * 0.5
+    }
 
-    this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 260)
+    if (this.muzzleLight) {
+      this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 260)
+    }
   }
 
   private updateCamera(dt: number) {
@@ -840,6 +1385,18 @@ export class Game {
     }
   }
 
+  private getMuzzleWorldPosition(out = new THREE.Vector3()): THREE.Vector3 {
+    if (this.muzzle.parent) {
+      this.muzzle.getWorldPosition(out)
+      return out
+    }
+    out.copy(this.player.position)
+    out.y += 1.35
+    out.x += Math.sin(this.aimYaw) * 0.45
+    out.z += Math.cos(this.aimYaw) * 0.45
+    return out
+  }
+
   private shoot() {
     // Richten door het midden van het scherm (crosshair)
     this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera)
@@ -849,8 +1406,7 @@ export class Game {
       false
     )
 
-    const muzzlePos = new THREE.Vector3()
-    this.muzzle.getWorldPosition(muzzlePos)
+    const muzzlePos = this.getMuzzleWorldPosition()
 
     let endPoint: THREE.Vector3
     let hitEnemy: Enemy | null = null
@@ -892,8 +1448,12 @@ export class Game {
 
     this.spawnTracer(muzzlePos, endPoint)
     this.spawnSparks(endPoint, hitEnemy ? 0xff5577 : 0x7dfcff)
-    this.muzzleLight.intensity = 22
+    if (this.muzzleLight) this.muzzleLight.intensity = 22
     this.gunKick = Math.min(this.gunKick + 0.55, 1)
+
+    if (this.playerAnims.shoot) {
+      this.playerAnims.shoot.reset().setEffectiveWeight(1).fadeIn(0.06).play()
+    }
 
     if (hitEnemy) {
       hitEnemy.hp -= 1
@@ -992,11 +1552,16 @@ export class Game {
         // Rode flits bij een raak schot
         enemy.flash = Math.max(0, enemy.flash - dt)
         const flashOn = enemy.flash > 0
-        enemy.visorMat.emissiveIntensity = flashOn ? 6 : 2
-        for (const m of enemy.mats) {
+        enemy.visorMat.emissiveIntensity = flashOn ? 6 : 2.8
+        enemy.mats.forEach((m, i) => {
+          if (i === 2) {
+            m.emissiveIntensity = flashOn ? 3.5 : 1.8
+            return
+          }
+          if (i === 3) return
           m.emissive.set(flashOn ? 0xff2244 : 0x000000)
-          m.emissiveIntensity = flashOn ? 1.4 : 1.6
-        }
+          m.emissiveIntensity = flashOn ? 1.4 : 0
+        })
       } else if (enemy.state === 'dying') {
         enemy.timer += dt
         const t = Math.min(enemy.timer / 0.55, 1)
