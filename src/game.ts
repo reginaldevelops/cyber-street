@@ -151,6 +151,9 @@ export class Game {
     this.buildEnemies()
     this.bindEvents()
     this.onResize()
+    // Camera meteen achter speler — voorkomt verkeerde looprichting in frame 1
+    this.camFocus.copy(this.player.position)
+    this.updateCamera(0)
     window.addEventListener('resize', () => this.onResize())
     this.clock.start()
     this.animate()
@@ -657,7 +660,7 @@ export class Game {
     })
     document.addEventListener('mousemove', (e) => {
       if (!this.pointerLocked) return
-      this.aimYaw -= e.movementX * MOUSE_SENS
+      this.aimYaw += e.movementX * MOUSE_SENS
       this.aimPitch = THREE.MathUtils.clamp(
         this.aimPitch + e.movementY * MOUSE_SENS,
         PITCH_MIN,
@@ -698,8 +701,8 @@ export class Game {
     const wish = new THREE.Vector3()
     if (this.keys.w) wish.add(forward)
     if (this.keys.s) wish.sub(forward)
-    if (this.keys.d) wish.add(right)
     if (this.keys.a) wish.sub(right)
+    if (this.keys.d) wish.add(right)
 
     const maxSpeed = this.keys.sprint && this.keys.w ? SPRINT_SPEED : WALK_SPEED
     const hasInput = wish.lengthSq() > 0
