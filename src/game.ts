@@ -660,7 +660,7 @@ export class Game {
     })
     document.addEventListener('mousemove', (e) => {
       if (!this.pointerLocked) return
-      this.aimYaw += e.movementX * MOUSE_SENS
+      this.aimYaw -= e.movementX * MOUSE_SENS
       this.aimPitch = THREE.MathUtils.clamp(
         this.aimPitch + e.movementY * MOUSE_SENS,
         PITCH_MIN,
