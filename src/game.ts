@@ -6,6 +6,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { populateSceneAmbience, updateAmbience, makeGreenGridTexture, type AmbienceState } from './ambience'
 import { buildCitySurround } from './citySurround.js'
+import { buildPlayerCharacter } from './playerCharacter.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
 const SPRINT_SPEED = 8.8
@@ -100,6 +101,7 @@ export class Game {
   private gunHolder = new THREE.Group()
   private muzzle = new THREE.Object3D()
   private muzzleLight!: THREE.PointLight
+  private playerVisorMat!: THREE.MeshStandardMaterial
   private walkPhase = 0
 
   private velocity = new THREE.Vector3()
@@ -314,22 +316,32 @@ export class Game {
 
     const configs: Record<
       Exclude<ShopKind, 'bar'>,
-      { label: string; color: number; container: number; h: number; w: number; d: number; signStyle: 'vertical' | 'horizontal' }
+      {
+        label: string
+        subtitle: string
+        color: number
+        container: number
+        h: number
+        w: number
+        d: number
+        signStyle: 'vertical' | 'horizontal'
+        facade: number
+      }
     > = {
-      weapons: { label: 'GUNS', color: NEON_ORANGE, container: 0xe85d04, h: 5.4, w: 7, d: 5.5, signStyle: 'vertical' },
-      armor: { label: 'GEAR', color: NEON_CYAN, container: 0x1a5fb4, h: 5, w: 7.5, d: 5.5, signStyle: 'horizontal' },
-      bank: { label: 'BANK', color: NEON_YELLOW, container: 0x1a5fb4, h: 6.2, w: 8, d: 6, signStyle: 'vertical' },
-      inn: { label: 'INN', color: 0xff8866, container: 0x8a3030, h: 4.8, w: 7.5, d: 5, signStyle: 'horizontal' },
-      tech: { label: 'TECH', color: 0x9a86ff, container: 0xe85d04, h: 6, w: 7, d: 5.5, signStyle: 'vertical' },
-      clinic: { label: 'MED+', color: 0x44ff88, container: 0x2a4858, h: 4.6, w: 6.5, d: 5, signStyle: 'vertical' },
-      general: { label: 'SHOP', color: NEON_PINK, container: 0xc41e3a, h: 4.6, w: 6.5, d: 5, signStyle: 'horizontal' },
+      weapons: { label: 'GUNS', subtitle: 'AMMO DEPOT', color: NEON_ORANGE, container: 0xe85d04, h: 5.4, w: 7, d: 5.5, signStyle: 'vertical', facade: 0x3a2420 },
+      armor: { label: 'GEAR', subtitle: 'BODY ARMOR', color: NEON_CYAN, container: 0x1a5fb4, h: 5, w: 7.5, d: 5.5, signStyle: 'horizontal', facade: 0x1a2838 },
+      bank: { label: 'BANK', subtitle: 'CREDITS', color: NEON_YELLOW, container: 0x1a5fb4, h: 6.2, w: 8, d: 6, signStyle: 'vertical', facade: 0x2a2830 },
+      inn: { label: 'INN', subtitle: 'ROOMS', color: 0xff8866, container: 0x8a3030, h: 4.8, w: 7.5, d: 5, signStyle: 'horizontal', facade: 0x322428 },
+      tech: { label: 'TECH', subtitle: 'MOD CHIPS', color: 0x9a86ff, container: 0xe85d04, h: 6, w: 7, d: 5.5, signStyle: 'vertical', facade: 0x242038 },
+      clinic: { label: 'MED+', subtitle: 'STIM LAB', color: 0x44ff88, container: 0x2a4858, h: 4.6, w: 6.5, d: 5, signStyle: 'vertical', facade: 0x1a3028 },
+      general: { label: 'SHOP', subtitle: 'GENERAL GOODS', color: NEON_PINK, container: 0xc41e3a, h: 4.6, w: 6.5, d: 5, signStyle: 'horizontal', facade: 0x281828 },
     }
     const cfg = configs[kind as Exclude<ShopKind, 'bar'>]
     const group = new THREE.Group()
     group.position.set(x, 0, z)
     group.rotation.y = faceYaw
 
-    const recessMat = new THREE.MeshStandardMaterial({ color: 0x1e1828, roughness: 0.78, metalness: 0.12 })
+    const recessMat = new THREE.MeshStandardMaterial({ color: cfg.facade, roughness: 0.78, metalness: 0.12 })
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a2436, roughness: 0.7, metalness: 0.18 })
     const trimMat = new THREE.MeshStandardMaterial({ color: 0x3a3448, roughness: 0.5, metalness: 0.4 })
     const metalMat = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.35, metalness: 0.8 })
@@ -422,6 +434,46 @@ export class Game {
     )
     door.position.set(0, 1.1, cfg.d / 2 + 0.04)
     group.add(door)
+
+    // Subtitle sign — building purpose
+    const subTex = this.makeSignTexture(cfg.subtitle, cfg.color)
+    const subMat = new THREE.MeshStandardMaterial({
+      map: subTex, emissive: cfg.color, emissiveMap: subTex, emissiveIntensity: 0.45, roughness: 0.45, metalness: 0.2,
+    })
+    const subSign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.32), subMat)
+    subSign.position.set(0, cfg.h - 0.55, cfg.d / 2 + 0.09)
+    group.add(subSign)
+
+    // Purpose props per shop type
+    if (kind === 'weapons') {
+      for (let b = 0; b < 3; b++) {
+        const crate = new THREE.Mesh(
+          new THREE.BoxGeometry(0.45, 0.35, 0.45),
+          new THREE.MeshStandardMaterial({ color: 0x3a3020, roughness: 0.82, metalness: 0.1 }),
+        )
+        crate.position.set(-0.8 + b * 0.7, 0.18, cfg.d / 2 + 0.35)
+        group.add(crate)
+      }
+      const rack = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.4, 0.08), metalMat)
+      rack.position.set(cfg.w / 2 - 0.5, 1.8, -cfg.d / 2 + 0.5)
+      group.add(rack)
+    } else if (kind === 'armor') {
+      const shield = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.7, 0.06), new THREE.MeshStandardMaterial({ color: 0x2a4050, roughness: 0.35, metalness: 0.85 }))
+      shield.position.set(0.5, 2.2, cfg.d / 2 + 0.12)
+      group.add(shield)
+      const shieldGlow = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.02), new THREE.MeshStandardMaterial({ color: NEON_CYAN, emissive: NEON_CYAN, emissiveIntensity: 0.6 }))
+      shieldGlow.position.copy(shield.position)
+      shieldGlow.position.z += 0.04
+      group.add(shieldGlow)
+      this.flickerMats.push({ mat: shieldGlow.material as THREE.MeshStandardMaterial, base: 0.6, t: Math.random() * 3 })
+    } else if (kind === 'general') {
+      const openTex = this.makeSignTexture('OPEN', 0x44ff88)
+      const openMat = new THREE.MeshStandardMaterial({ map: openTex, emissive: 0x44ff88, emissiveMap: openTex, emissiveIntensity: 0.7 })
+      const openSign = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.28), openMat)
+      openSign.position.set(-1.2, 2.4, cfg.d / 2 + 0.11)
+      group.add(openSign)
+      this.flickerMats.push({ mat: openMat, base: 0.7, t: Math.random() * 2 })
+    }
 
     this.scene.add(group)
   }
@@ -613,162 +665,19 @@ export class Game {
 
   // ── Speler ──────────────────────────────────────────────────────────────
 
-  private buildUzi(metal: THREE.Material, gripMat: THREE.Material, neon: THREE.Material) {
-    const uzi = new THREE.Group()
-
-    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.11, 0.28), metal)
-    receiver.position.set(0, 0, 0.02)
-    uzi.add(receiver)
-
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.2, 10), metal)
-    barrel.rotation.x = Math.PI / 2
-    barrel.position.set(0, 0.02, 0.28)
-    uzi.add(barrel)
-    const comp = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.034, 0.04), metal)
-    comp.position.set(0, 0.02, 0.38)
-    uzi.add(comp)
-
-    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.14, 0.055), gripMat)
-    mag.position.set(0, -0.1, -0.02)
-    mag.rotation.x = 0.22
-    uzi.add(mag)
-
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.11, 0.05), gripMat)
-    grip.position.set(0, -0.1, -0.1)
-    grip.rotation.x = 0.35
-    uzi.add(grip)
-
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.07, 0.16), metal)
-    stock.position.set(0, 0.01, -0.18)
-    uzi.add(stock)
-    const stockWireL = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.05, 0.12), metal)
-    stockWireL.position.set(-0.018, -0.02, -0.14)
-    stockWireL.rotation.z = 0.25
-    uzi.add(stockWireL)
-    const stockWireR = stockWireL.clone()
-    stockWireR.position.x = 0.018
-    stockWireR.rotation.z = -0.25
-    uzi.add(stockWireR)
-
-    const cover = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.025, 0.22), metal)
-    cover.position.set(0, 0.065, 0.02)
-    uzi.add(cover)
-    const charge = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.012, 0.03), metal)
-    charge.position.set(0.03, 0.07, 0.06)
-    uzi.add(charge)
-
-    const cell = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.018, 0.1), neon)
-    cell.position.set(0, -0.01, 0.04)
-    uzi.add(cell)
-
-    const foregrip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.07, 0.04), gripMat)
-    foregrip.position.set(0, -0.05, 0.14)
-    uzi.add(foregrip)
-
-    this.muzzle.position.set(0, 0.02, 0.42)
-    uzi.add(this.muzzle)
-    return uzi
-  }
-
   private buildIsoPlayer() {
-    const coatMat = new THREE.MeshStandardMaterial({
-      color: 0x1a1824,
-      roughness: 0.62,
-      metalness: 0.28,
-    })
-    const trimMat = new THREE.MeshStandardMaterial({
-      color: NEON_CYAN,
-      emissive: NEON_CYAN,
-      emissiveIntensity: 0.55,
-      roughness: 0.35,
-      metalness: 0.5,
-    })
-    const skinMat = new THREE.MeshStandardMaterial({ color: 0xc8a88a, roughness: 0.72, metalness: 0.08 })
-    const bootMat = new THREE.MeshStandardMaterial({ color: 0x141018, roughness: 0.55, metalness: 0.35 })
-    const metalGun = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.35, metalness: 0.9 })
-    const gripGun = new THREE.MeshStandardMaterial({ color: 0x141210, roughness: 0.78, metalness: 0.12 })
-    const neonGun = new THREE.MeshStandardMaterial({
-      color: NEON_ORANGE,
-      emissive: NEON_ORANGE,
-      emissiveIntensity: 0.9,
-      roughness: 0.35,
-      metalness: 0.45,
-    })
-
-    // Trenchcoat torso
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.72, 0.28), coatMat)
-    torso.position.y = 1.08
-    torso.castShadow = true
-    const lapelL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.38, 0.02), trimMat)
-    lapelL.position.set(-0.14, 1.18, 0.15)
-    const lapelR = lapelL.clone()
-    lapelR.position.x = 0.14
-    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.3), metalGun)
-    belt.position.set(0, 0.82, 0.02)
-    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.04), trimMat)
-    buckle.position.set(0, 0.82, 0.17)
-
-    // Head + cyber eye
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.26, 0.24), skinMat)
-    head.position.y = 1.62
-    head.castShadow = true
-    const hood = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.28), coatMat)
-    hood.position.set(0, 1.76, -0.02)
-    const eyeHuman = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 8), new THREE.MeshStandardMaterial({ color: 0x221818 }))
-    eyeHuman.position.set(-0.06, 1.64, 0.13)
-    const eyeCyber = new THREE.Mesh(new THREE.SphereGeometry(0.032, 8, 8), trimMat)
-    eyeCyber.position.set(0.06, 1.64, 0.13)
-    const jawLine = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.03, 0.04), trimMat)
-    jawLine.position.set(0.06, 1.56, 0.13)
-
-    // Arms
-    const buildArm = (side: number) => {
-      const arm = new THREE.Group()
-      arm.position.set(side * 0.32, 1.28, 0)
-      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.32, 0.12), coatMat)
-      upper.position.y = -0.16
-      upper.castShadow = true
-      const fore = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.28, 0.1), coatMat)
-      fore.position.y = -0.42
-      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), skinMat)
-      hand.position.y = -0.58
-      arm.add(upper, fore, hand)
-      return arm
-    }
-    const armL = buildArm(-1)
-    const armR = buildArm(1)
-
-    // Benen (groepen voor loop-animatie)
-    const buildLeg = (leg: THREE.Group, side: number) => {
-      leg.position.set(side * 0.12, 0.78, 0)
-      const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.34, 0.14), coatMat)
-      thigh.position.y = -0.17
-      thigh.castShadow = true
-      const shin = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.32, 0.12), bootMat)
-      shin.position.y = -0.5
-      const boot = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.22), bootMat)
-      boot.position.set(0, -0.68, 0.04)
-      leg.add(thigh, shin, boot)
-    }
-    buildLeg(this.legL, -1)
-    buildLeg(this.legR, 1)
-
-    // Wapen
-    this.gun = this.buildUzi(metalGun, gripGun, neonGun)
-    this.gun.scale.setScalar(1.15)
-    this.gunHolder.position.set(0.34, 1.12, 0.22)
-    this.gunHolder.rotation.set(-0.35, -0.15, 0.1)
-    this.gunHolder.add(this.gun)
-    this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
-    this.gun.add(this.muzzleLight)
-    this.muzzleLight.position.set(0, 0.02, 0.42)
-
-    this.playerBody.add(
-      torso, lapelL, lapelR, belt, buckle,
-      head, hood, eyeHuman, eyeCyber, jawLine,
-      armL, armR, this.legL, this.legR, this.gunHolder,
-    )
-    this.player.add(this.playerBody)
+    const rig = buildPlayerCharacter(NEON_CYAN, NEON_PINK, NEON_ORANGE)
+    this.player = rig.root
+    this.playerBody = rig.body
+    this.legL = rig.legL
+    this.legR = rig.legR
+    this.gun = rig.gun
+    this.gunHolder = rig.gunHolder
+    this.muzzle = rig.muzzle
+    this.muzzleLight = rig.muzzleLight
+    this.playerVisorMat = rig.visorMat
+    this.gun.scale.setScalar(1.12)
+    this.flickerMats.push({ mat: this.playerVisorMat, base: 1.4, t: Math.random() * 2 })
     this.player.position.set(0, 0, 10)
     this.scene.add(this.player)
   }

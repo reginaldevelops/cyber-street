@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { attachRooftopDetails } from './rooftops.js'
 
 // ── Palette (purple-grey cyber-industrial) ────────────────────────────────
 export const PLAZA_HALF = 20
@@ -21,6 +22,10 @@ const NEON_ORANGE = 0xff6622
 const WINDOW_WARM = 0xffcc66
 const WINDOW_COOL = 0x88aaff
 const WINDOW_PINK = 0xff8866
+const BRICK_RED = 0x4a2828
+const BRICK_TAN = 0x3a3428
+const BRICK_GREY = 0x323038
+const BRICK_ACCENT = [BRICK_RED, BRICK_TAN, BRICK_GREY, WALL_MID] as const
 
 const SHOP_INSET = PLAZA_HALF - 1.5 // 18.5 — matches game.ts courtyard shops
 const STREET_INNER = PLAZA_HALF + 0.5 // 20.5 — just outside plaza trim
@@ -80,6 +85,32 @@ function mats() {
 function seededRand(seed: number) {
   const x = Math.sin(seed * 127.1 + seed * 311.7) * 43758.5453
   return x - Math.floor(x)
+}
+
+/** Readable storefront sign texture — Agent 2 building labels. */
+export function makeStoreSignTexture(label: string, hexColor: number, sub = ''): THREE.CanvasTexture {
+  const c = document.createElement('canvas')
+  c.width = 256
+  c.height = sub ? 96 : 64
+  const ctx = c.getContext('2d')!
+  ctx.fillStyle = '#0c0a10'
+  ctx.fillRect(0, 0, c.width, c.height)
+  const css = `#${hexColor.toString(16).padStart(6, '0')}`
+  ctx.font = 'bold 28px Courier New, monospace'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = css
+  ctx.shadowColor = css
+  ctx.shadowBlur = 12
+  ctx.fillText(label, 128, sub ? 28 : 32)
+  if (sub) {
+    ctx.font = '16px Courier New, monospace'
+    ctx.globalAlpha = 0.75
+    ctx.fillText(sub, 128, 62)
+  }
+  const tex = new THREE.CanvasTexture(c)
+  tex.needsUpdate = true
+  return tex
 }
 
 /** Procedural abstract kanji-like vertical neon glyph strip. */
@@ -248,15 +279,20 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
         block.rotation.y = rotY
 
         if (isFullBlock) {
-          const body = new THREE.Mesh(new THREE.BoxGeometry(w, height, depthSpan), m.wallDark)
+          const brickColor = BRICK_ACCENT[segIdx % BRICK_ACCENT.length]
+          const bodyMat = m.wallDark.clone()
+          bodyMat.color.set(brickColor)
+          const body = new THREE.Mesh(new THREE.BoxGeometry(w, height, depthSpan), bodyMat)
           body.position.y = height / 2
           body.castShadow = true
           body.receiveShadow = true
           block.add(body)
           ctx.colliders?.push(body)
         } else {
-          // Flat facade + thin side caps (billboard canyon wall)
-          const facade = new THREE.Mesh(new THREE.BoxGeometry(w, height, 0.35), m.wall)
+          const brickColor = BRICK_ACCENT[(segIdx + 1) % BRICK_ACCENT.length]
+          const facadeMat = m.wall.clone()
+          facadeMat.color.set(brickColor)
+          const facade = new THREE.Mesh(new THREE.BoxGeometry(w, height, 0.35), facadeMat)
           facade.position.set(0, height / 2, -depthSpan / 2 + 0.2)
           facade.castShadow = true
           block.add(facade)
@@ -266,6 +302,16 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
           const capR = capL.clone()
           capR.position.x = w / 2 - 0.12
           block.add(capR)
+        }
+
+        // Brick banding / water stain
+        if (seededRand(segIdx + 50) > 0.4) {
+          const band = new THREE.Mesh(
+            new THREE.BoxGeometry(w * 0.92, 0.12, 0.04),
+            new THREE.MeshStandardMaterial({ color: 0x1a1618, roughness: 0.9, metalness: 0.05 }),
+          )
+          band.position.set(0, height * 0.28, -depthSpan / 2 + 0.24)
+          block.add(band)
         }
 
         // Window strip (instanced later per segment — here 2–4 emissive planes)
@@ -284,6 +330,28 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
         }
 
         attachFacadeDetails(ctx, { u, width: w, height, depth: depthSpan, isFullBlock, side }, block, segIdx * 13)
+
+        // Purpose sign on every 2nd segment — Agent 2
+        const storeLabels = ['DELI', 'PAWN', 'REPAIR', 'NOODLES', 'PHARM', 'LOCKS', 'DATA', 'PRINT']
+        const storeColors = [NEON_ORANGE, NEON_YELLOW, NEON_CYAN, NEON_PINK, 0x44ff88, NEON_CYAN, 0x9a86ff, NEON_YELLOW]
+        if (segIdx % 2 === 0) {
+          const li = segIdx % storeLabels.length
+          const tex = makeStoreSignTexture(storeLabels[li], storeColors[li], 'OPEN 24H')
+          const signMat = new THREE.MeshStandardMaterial({
+            map: tex,
+            emissive: storeColors[li],
+            emissiveMap: tex,
+            emissiveIntensity: 0.75,
+            roughness: 0.4,
+            metalness: 0.2,
+          })
+          const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w * 0.75, 2.8), 0.55), signMat)
+          sign.position.set(0, height * 0.78, -depthSpan / 2 + 0.26)
+          block.add(sign)
+          ctx.flickerMats.push({ mat: signMat, base: 0.75, t: Math.random() * 4 })
+        }
+
+        attachRooftopDetails(block, w, height, depthSpan, segIdx * 7 + side.charCodeAt(0))
         root.add(block)
         segIdx++
       }
@@ -337,6 +405,78 @@ export function buildSkylineBackdrop(ctx: CitySurroundContext): THREE.Group {
         else tower.position.set(layer.zOff, h / 2, u)
 
         root.add(tower)
+
+        // Agent 4 — setbacks, spires, accent bands
+        if (seededRand(i + ring + layer.zOff) > 0.35) {
+          const setH = h * (0.22 + seededRand(i) * 0.18)
+          const setW = w * 0.72
+          const setback = new THREE.Mesh(new THREE.BoxGeometry(setW, setH, setW * 0.8), silMat)
+          setback.position.copy(tower.position)
+          setback.position.y = h + setH / 2
+          root.add(setback)
+
+          if (seededRand(i + 11) > 0.5) {
+            const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.18, 2.5 + seededRand(i) * 4, 6), silMat)
+            spire.position.set(setback.position.x, setback.position.y + setH / 2 + 1.2, setback.position.z)
+            root.add(spire)
+            const beacon = new THREE.Mesh(
+              new THREE.SphereGeometry(0.12, 6, 6),
+              new THREE.MeshStandardMaterial({
+                color: i % 2 ? NEON_PINK : NEON_CYAN,
+                emissive: i % 2 ? NEON_PINK : NEON_CYAN,
+                emissiveIntensity: 1.2,
+              }),
+            )
+            beacon.position.copy(spire.position)
+            beacon.position.y += 1.4 + seededRand(i) * 2
+            root.add(beacon)
+            ctx.flickerMats.push({ mat: beacon.material as THREE.MeshStandardMaterial, base: 1.2, t: Math.random() * 3 })
+          }
+        }
+
+        // Horizontal accent band — lit office floor
+        if (seededRand(i + 33) > 0.45) {
+          const bandY = h * (0.55 + seededRand(i + 5) * 0.25)
+          const bandColor = [NEON_CYAN, NEON_PINK, NEON_YELLOW][i % 3]
+          const band = new THREE.Mesh(
+            new THREE.BoxGeometry(w * 1.02, 0.18, w * 0.88),
+            new THREE.MeshStandardMaterial({
+              color: bandColor,
+              emissive: bandColor,
+              emissiveIntensity: 0.35,
+              transparent: true,
+              opacity: 0.55,
+            }),
+          )
+          band.position.copy(tower.position)
+          band.position.y = bandY
+          root.add(band)
+        }
+
+        // Rooftop billboard silhouette
+        if (seededRand(i + 77) > 0.72 && layer.zOff >= SKYLINE_NEAR) {
+          const board = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, h * 0.12, 0.08), silMat)
+          board.position.copy(tower.position)
+          board.position.y = h + 0.4
+          root.add(board)
+          const adColor = [NEON_PINK, NEON_CYAN, NEON_ORANGE][i % 3]
+          const ad = new THREE.Mesh(
+            new THREE.PlaneGeometry(w * 0.75, h * 0.08),
+            new THREE.MeshStandardMaterial({
+              color: adColor,
+              emissive: adColor,
+              emissiveIntensity: 0.5,
+              transparent: true,
+              opacity: 0.65,
+            }),
+          )
+          ad.position.copy(board.position)
+          ad.position.z += w * 0.44
+          if (side === 1) ad.rotation.y = Math.PI
+          else if (side === 2) ad.rotation.y = Math.PI / 2
+          else if (side === 3) ad.rotation.y = -Math.PI / 2
+          root.add(ad)
+        }
 
         // Instanced windows on plaza-facing face
         const rows = 2 + Math.floor(h / 8)
@@ -594,8 +734,35 @@ export function buildElevatedWalkways(ctx: CitySurroundContext): THREE.Group {
 
 const _dummy = new THREE.Object3D()
 
+/** Slim wet street ring — grounds the plaza without clutter. */
+function buildStreetRing(ctx: CitySurroundContext): THREE.Group {
+  const root = new THREE.Group()
+  root.name = 'street-ring'
+  const stripMat = new THREE.MeshStandardMaterial({ color: STREET_DARK, roughness: 0.18, metalness: 0.62 })
+  const streetW = STREET_OUTER - STREET_INNER
+  const mid = (STREET_INNER + STREET_OUTER) / 2
+  const sides: Side[] = ['north', 'south', 'east', 'west']
+  for (const side of sides) {
+    const len = PLAZA_SIZE + streetW * 2
+    const strip = new THREE.Mesh(
+      new THREE.PlaneGeometry(side === 'north' || side === 'south' ? len : streetW, side === 'north' || side === 'south' ? streetW : len),
+      stripMat,
+    )
+    strip.rotation.x = -Math.PI / 2
+    strip.receiveShadow = true
+    if (side === 'north') strip.position.set(0, 0.006, -mid)
+    else if (side === 'south') strip.position.set(0, 0.006, mid)
+    else if (side === 'west') strip.position.set(-mid, 0.006, 0)
+    else strip.position.set(mid, 0.006, 0)
+    root.add(strip)
+  }
+  ctx.scene.add(root)
+  return root
+}
+
 /** Master builder — all surround systems + stats for budget tracking. */
 export function buildCitySurround(ctx: CitySurroundContext): CitySurroundStats {
+  buildStreetRing(ctx)
   buildPerimeterCity(ctx)
   buildVerticalNeonSigns(ctx)
   buildSkylineBackdrop(ctx)
