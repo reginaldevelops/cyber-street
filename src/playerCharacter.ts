@@ -11,6 +11,12 @@ export interface PlayerRig {
   muzzle: THREE.Object3D
   muzzleLight: THREE.PointLight
   visorMat: THREE.MeshStandardMaterial
+  /** Present when GLB includes animation clips. */
+  mixer?: THREE.AnimationMixer
+  idleAction?: THREE.AnimationAction | null
+  walkAction?: THREE.AnimationAction | null
+  runAction?: THREE.AnimationAction | null
+  hasSkeleton: boolean
 }
 
 export function buildPlayerCharacter(
@@ -183,5 +189,5 @@ export function buildPlayerCharacter(
   )
   root.add(body)
 
-  return { root, body, legL, legR, gun, gunHolder, muzzle, muzzleLight, visorMat }
+  return { root, body, legL, legR, gun, gunHolder, muzzle, muzzleLight, visorMat, hasSkeleton: false }
 }

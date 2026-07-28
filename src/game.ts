@@ -12,7 +12,7 @@ import {
   type GroundConceptId,
 } from './groundConcepts.js'
 import { buildCitySurround } from './citySurround.js'
-import { loadHitemPlayer } from './playerModel.js'
+import { loadHitemPlayer, updatePlayerAnimations } from './playerModel.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
 const SPRINT_SPEED = 8.8
@@ -109,6 +109,11 @@ export class Game {
   private muzzle = new THREE.Object3D()
   private muzzleLight!: THREE.PointLight
   private playerVisorMat!: THREE.MeshStandardMaterial
+  private playerMixer?: THREE.AnimationMixer
+  private playerIdleAction?: THREE.AnimationAction | null
+  private playerWalkAction?: THREE.AnimationAction | null
+  private playerRunAction?: THREE.AnimationAction | null
+  private playerHasSkeleton = false
   private walkPhase = 0
 
   private velocity = new THREE.Vector3()
@@ -495,10 +500,21 @@ export class Game {
       this.muzzle = rig.muzzle
       this.muzzleLight = rig.muzzleLight
       this.playerVisorMat = rig.visorMat
+      this.playerMixer = rig.mixer
+      this.playerIdleAction = rig.idleAction
+      this.playerWalkAction = rig.walkAction
+      this.playerRunAction = rig.runAction
+      this.playerHasSkeleton = rig.hasSkeleton
 
       this.player.position.set(0, 0, 10)
-      this.player.visible = !this.playing ? false : true
+      this.player.visible = this.playing
       this.scene.add(this.player)
+
+      if (rig.mixer) {
+        console.info('[player] animation clips ready — walk/idle will play when moving')
+      } else if (rig.hasSkeleton) {
+        console.info('[player] rigged model loaded (no animation clips yet — static pose + bob)')
+      }
 
       if (this.playerVisorMat.emissiveIntensity > 0) {
         this.flickerMats.push({ mat: this.playerVisorMat, base: this.playerVisorMat.emissiveIntensity, t: Math.random() * 2 })
@@ -818,7 +834,21 @@ export class Game {
     const speedRatio = speed / SPRINT_SPEED
     const moving = speed > 0.12
 
-    if (moving) {
+    updatePlayerAnimations(
+      {
+        mixer: this.playerMixer,
+        idleAction: this.playerIdleAction,
+        walkAction: this.playerWalkAction,
+        runAction: this.playerRunAction,
+      },
+      dt,
+      moving,
+      this.keys.sprint && this.keys.w,
+    )
+
+    if (this.playerMixer) {
+      // GLB clips drive locomotion — skip procedural leg swing
+    } else if (moving) {
       this.walkPhase += dt * (6 + speedRatio * 5)
       const swing = Math.sin(this.walkPhase) * 0.42 * Math.min(speedRatio * 2, 1)
       this.legL.rotation.x = swing
