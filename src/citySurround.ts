@@ -762,7 +762,6 @@ function buildStreetRing(ctx: CitySurroundContext): THREE.Group {
 
 /** Master builder — all surround systems + stats for budget tracking. */
 export function buildCitySurround(ctx: CitySurroundContext): CitySurroundStats {
-  buildStreetRing(ctx)
   buildPerimeterCity(ctx)
   buildVerticalNeonSigns(ctx)
   buildSkylineBackdrop(ctx)

@@ -5,6 +5,12 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { populateSceneAmbience, updateAmbience, makeGreenGridTexture, type AmbienceState } from './ambience'
+import {
+  buildGroundConcept,
+  GROUND_CONCEPTS,
+  conceptByKey,
+  type GroundConceptId,
+} from './groundConcepts.js'
 import { buildCitySurround } from './citySurround.js'
 import { buildPlayerCharacter } from './playerCharacter.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
@@ -131,12 +137,18 @@ export class Game {
   private holoRing!: THREE.Group
   private ambience!: AmbienceState
   private centralHub!: THREE.Group
+  private groundGroup!: THREE.Group
+  private groundConcept: GroundConceptId = 'neon-grid'
+  private groundCollider!: THREE.Mesh
+  private glowTexture!: THREE.CanvasTexture
+  private conceptPanelEl: HTMLElement | null
 
   constructor(container: HTMLElement, hintEl: HTMLElement) {
     this.container = container
     this.hintEl = hintEl
     this.killsEl = document.getElementById('kills')
     this.crosshairEl = document.getElementById('crosshair')
+    this.conceptPanelEl = document.getElementById('concept-panel')
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -213,7 +225,7 @@ export class Game {
     fill.position.set(8, 10, 14)
     this.scene.add(fill)
 
-    this.buildPlazaFloor()
+    this.buildPlazaFloor(this.groundConcept)
     this.buildCourtyardShops()
     this.buildMarketStalls()
     this.buildBarDistrict()
@@ -251,44 +263,48 @@ export class Game {
     this.flickerMats.push({ mat, base: intensity, t: Math.random() * 3 })
   }
 
-  /** Nat natte plaza — rustig, één accent (cyan rand). */
-  private buildPlazaFloor() {
-    const asphaltMat = new THREE.MeshStandardMaterial({
-      color: 0x12101a,
-      roughness: 0.2,
-      metalness: 0.65,
+  private buildPlazaFloor(concept: GroundConceptId) {
+    this.glowTexture = this.makeGlowTexture()
+    this.groundGroup = buildGroundConcept(concept, {
+      scene: this.scene,
+      flickerMats: this.flickerMats,
+      colliders: this.worldColliders,
+      glowTexture: this.glowTexture,
     })
-    const plaza = new THREE.Mesh(new THREE.PlaneGeometry(PLAZA_SIZE, PLAZA_SIZE), asphaltMat)
-    plaza.rotation.x = -Math.PI / 2
-    plaza.receiveShadow = true
-    this.scene.add(plaza)
-    this.worldColliders.push(plaza)
+    this.scene.add(this.groundGroup)
+    this.groundCollider = this.worldColliders[this.worldColliders.length - 1]
+    this.groundConcept = concept
+    this.updateConceptPanel()
+  }
 
-    const trimMat = new THREE.MeshStandardMaterial({
-      color: NEON_CYAN,
-      emissive: NEON_CYAN,
-      emissiveIntensity: 0.7,
-      roughness: 0.4,
-      metalness: 0.35,
+  private switchGroundConcept(concept: GroundConceptId) {
+    if (concept === this.groundConcept) return
+
+    this.scene.remove(this.groundGroup)
+    this.groundGroup.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        obj.geometry.dispose()
+        const mat = obj.material
+        if (Array.isArray(mat)) mat.forEach((m) => m.dispose())
+        else mat.dispose()
+      }
     })
-    const borderW = 0.25
-    for (const [bx, bz] of [
-      [0, -PLAZA_HALF + borderW / 2],
-      [0, PLAZA_HALF - borderW / 2],
-      [-PLAZA_HALF + borderW / 2, 0],
-      [PLAZA_HALF - borderW / 2, 0],
-    ] as [number, number][]) {
-      const edge = new THREE.Mesh(
-        new THREE.PlaneGeometry(bx === 0 ? PLAZA_SIZE : borderW, bz === 0 ? PLAZA_SIZE : borderW),
-        trimMat,
-      )
-      edge.rotation.x = -Math.PI / 2
-      edge.position.set(bx, 0.02, bz)
-      this.scene.add(edge)
-    }
 
-    this.addPuddleDecal(0, 0, 3.5, NEON_CYAN, 0.12)
-    this.addPuddleDecal(-8, 6, 2.0, NEON_PINK, 0.1)
+    const idx = this.worldColliders.indexOf(this.groundCollider)
+    if (idx >= 0) this.worldColliders.splice(idx, 1)
+
+    this.buildPlazaFloor(concept)
+  }
+
+  private updateConceptPanel() {
+    if (!this.conceptPanelEl) return
+    const meta = GROUND_CONCEPTS.find((c) => c.id === this.groundConcept)!
+    this.conceptPanelEl.innerHTML = `
+      <div class="concept-title">${meta.agent}: ${meta.name}</div>
+      <div class="concept-tag">${meta.tagline}</div>
+      <div class="concept-pitch">${meta.pitch}</div>
+      <div class="concept-keys">Druk <b>1–4</b> om concept te vergelijken</div>
+    `
   }
 
   private makeSignTexture(text: string, hexColor: number): THREE.CanvasTexture {
@@ -879,7 +895,13 @@ export class Game {
   // ── Input ───────────────────────────────────────────────────────────────
 
   private bindEvents() {
-    window.addEventListener('keydown', (e) => this.setKey(e.code, true))
+    window.addEventListener('keydown', (e) => {
+      if (e.code.startsWith('Digit')) {
+        const concept = conceptByKey(e.code.replace('Digit', ''))
+        if (concept) this.switchGroundConcept(concept)
+      }
+      this.setKey(e.code, true)
+    })
     window.addEventListener('keyup', (e) => this.setKey(e.code, false))
 
     const canvas = this.renderer.domElement

@@ -143,6 +143,46 @@
       #hint.hidden {
         display: none;
       }
+      #concept-panel {
+        position: absolute;
+        top: 22px;
+        right: 26px;
+        width: 280px;
+        padding: 14px 16px;
+        border: 1px solid rgba(255, 45, 149, 0.4);
+        border-right: 3px solid rgba(0, 255, 255, 0.85);
+        background: rgba(0, 0, 0, 0.58);
+        backdrop-filter: blur(6px);
+        font-size: 12px;
+        line-height: 1.45;
+        letter-spacing: 0.04em;
+      }
+      #concept-panel .concept-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: #00f6ff;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        margin-bottom: 4px;
+      }
+      #concept-panel .concept-tag {
+        color: #ff2d95;
+        font-size: 11px;
+        margin-bottom: 8px;
+      }
+      #concept-panel .concept-pitch {
+        color: #b8c8d8;
+        margin-bottom: 10px;
+      }
+      #concept-panel .concept-keys {
+        font-size: 11px;
+        color: #8899aa;
+        border-top: 1px solid rgba(0, 255, 255, 0.2);
+        padding-top: 8px;
+      }
+      #concept-panel b {
+        color: #ff2d95;
+      }
     </style>
   </head>
   <body>
@@ -153,9 +193,10 @@
         Neutralized
         <span id="kills">00</span>
       </div>
+      <div id="concept-panel"></div>
       <div id="hint">
         Klik om te spelen · <b>WASD</b> lopen · <b>Shift</b> sprinten ·
-        <b>Muis</b> mikken · <b>Klik</b> schieten · cyber-binnenhof
+        <b>Muis</b> mikken · <b>Klik</b> schieten · <b>1–4</b> grond-concept
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
