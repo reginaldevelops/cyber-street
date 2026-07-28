@@ -138,7 +138,7 @@ export class Game {
   private ambience!: AmbienceState
   private centralHub!: THREE.Group
   private groundGroup!: THREE.Group
-  private groundConcept: GroundConceptId = 'neon-grid'
+  private groundConcept: GroundConceptId = 'grate-deep'
   private groundCollider!: THREE.Mesh
   private glowTexture!: THREE.CanvasTexture
   private conceptPanelEl: HTMLElement | null
@@ -303,7 +303,7 @@ export class Game {
       <div class="concept-title">${meta.agent}: ${meta.name}</div>
       <div class="concept-tag">${meta.tagline}</div>
       <div class="concept-pitch">${meta.pitch}</div>
-      <div class="concept-keys">Druk <b>1–4</b> om concept te vergelijken</div>
+      <div class="concept-keys">Druk <b>1–4</b> · vergelijk grate-verbeteringen</div>
     `
   }
 

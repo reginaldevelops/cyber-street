@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 
-export type GroundConceptId = 'neon-grid' | 'broken-nyc' | 'rain-mirror' | 'industrial-grate'
+export type GroundConceptId = 'grate-deep' | 'grate-cargo' | 'grate-neon-drain' | 'grate-rust-pipe'
 
 export interface GroundConceptMeta {
   id: GroundConceptId
@@ -10,35 +10,35 @@ export interface GroundConceptMeta {
   pitch: string
 }
 
-/** Vier agent-concepten — druk 1–4 in-game om te wisselen. */
+/** Vier agent-verbeteringen op Industrial Grate — druk 1–4 om te vergelijken. */
 export const GROUND_CONCEPTS: GroundConceptMeta[] = [
   {
-    id: 'neon-grid',
+    id: 'grate-deep',
     agent: 'Agent A',
-    name: 'Neon Grid Plaza',
-    tagline: 'MMO hub / Tron crossover',
-    pitch: 'Donker glas-asfalt met gloeiend raster. Het plein voelt als een online lobby — duidelijke zones, geen rommel.',
+    name: 'Deep Grate Cathedral',
+    tagline: 'Gelaagd rooster / recessed channels',
+    pitch: 'Twee-laags roosters met bouten per tegel, verzonken drainage, stoom uit roosters, stalen rand.',
   },
   {
-    id: 'broken-nyc',
+    id: 'grate-cargo',
     agent: 'Agent B',
-    name: 'Broken NYC Street',
-    tagline: 'Vuile Manhattan achtersteeg',
-    pitch: 'Gebarsten asfalt, manholes, gele strepen, olievlekken. Rauw en herkenbaar straatgevoel.',
+    name: 'Cargo Dock Heavy',
+    tagline: 'Laad-dock / forklift zones',
+    pitch: 'Heftruck-banen, ZONE-markeringen, klinknagels, ketting-ankers, rubber bumpers, chevrons.',
   },
   {
-    id: 'rain-mirror',
+    id: 'grate-neon-drain',
     agent: 'Agent C',
-    name: 'Rain Mirror',
-    tagline: 'Film-noir reflectie',
-    pitch: 'Extreem nat oppervlak, grote plassen, drainage naar het midden. Neon weerkaatst in het water.',
+    name: 'Neon Drain Network',
+    tagline: 'Glowing pipe grid',
+    pitch: 'Volledig drainnetwerk met knooppunten, underglow onder elk rooster, centrale drain-hub.',
   },
   {
-    id: 'industrial-grate',
+    id: 'grate-rust-pipe',
     agent: 'Agent D',
-    name: 'Industrial Grate Yard',
-    tagline: 'Haven / laad-dock',
-    pitch: 'Metalen roosters, afvoerkanalen met cyan-onderlicht, waarschuwingsstrepen. Cyber-industrieel.',
+    name: 'Rust & Machinery',
+    tagline: 'Verweerde fabrieksvloer',
+    pitch: 'Roestvlekken, leidingen, kleppen, kabelgoten, stencil-waarschuwingen, gemixte tegels.',
   },
 ]
 
@@ -60,7 +60,7 @@ export interface GroundBuildContext {
 }
 
 function rand(seed: number) {
-  const x = Math.sin(seed * 127.1) * 43758.5453
+  const x = Math.sin(seed * 127.1 + seed * 311.7) * 43758.5453
   return x - Math.floor(x)
 }
 
@@ -76,47 +76,22 @@ function makeCanvasTexture(w: number, h: number, draw: (ctx: CanvasRenderingCont
   return tex
 }
 
-function puddle(
-  ctx: GroundBuildContext,
-  x: number,
-  z: number,
-  radius: number,
-  color: number,
-  intensity = 0.2,
-  y = 0.025,
-) {
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0x080610,
-    emissive: color,
-    emissiveIntensity: intensity,
-    emissiveMap: ctx.glowTexture,
-    transparent: true,
-    opacity: 0.78,
-    roughness: 0.08,
-    metalness: 0.92,
-    depthWrite: false,
-  })
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2, radius * 2), mat)
-  mesh.rotation.x = -Math.PI / 2
-  mesh.position.set(x, y, z)
-  return { mesh, mat, intensity }
-}
-
-function plazaPlane(mat: THREE.Material, colliders: THREE.Mesh[]) {
+function addCollider(root: THREE.Group, ctx: GroundBuildContext) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0x141018 })
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(PLAZA_SIZE, PLAZA_SIZE), mat)
   mesh.rotation.x = -Math.PI / 2
-  mesh.receiveShadow = true
-  colliders.push(mesh)
+  mesh.visible = false
+  ctx.colliders.push(mesh)
+  root.add(mesh)
   return mesh
 }
 
-function streetRing(mat: THREE.Material) {
+function streetRing(mat: THREE.Material, extra?: (root: THREE.Group) => void) {
   const root = new THREE.Group()
   root.name = 'street-ring'
   const streetW = STREET_OUTER - STREET_INNER
   const mid = (STREET_INNER + STREET_OUTER) / 2
-  const sides = ['north', 'south', 'east', 'west'] as const
-  for (const side of sides) {
+  for (const side of ['north', 'south', 'east', 'west'] as const) {
     const len = PLAZA_SIZE + streetW * 2
     const strip = new THREE.Mesh(
       new THREE.PlaneGeometry(side === 'north' || side === 'south' ? len : streetW, side === 'north' || side === 'south' ? streetW : len),
@@ -130,362 +105,515 @@ function streetRing(mat: THREE.Material) {
     else strip.position.set(mid, 0.005, 0)
     root.add(strip)
   }
+  extra?.(root)
   return root
 }
 
-// ── Agent A: Neon Grid Plaza ────────────────────────────────────────────────
-
-function buildNeonGrid(ctx: GroundBuildContext): THREE.Group {
-  const root = new THREE.Group()
-  root.name = 'ground-neon-grid'
-
-  const gridTex = makeCanvasTexture(256, 256, (g) => {
-    g.fillStyle = '#0e0c14'
-    g.fillRect(0, 0, 256, 256)
-    g.strokeStyle = '#1a2840'
-    g.lineWidth = 2
-    for (let i = 0; i <= 256; i += 32) {
-      g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.stroke()
-      g.beginPath(); g.moveTo(0, i); g.lineTo(256, i); g.stroke()
-    }
-    g.strokeStyle = 'rgba(0,246,255,0.35)'
-    g.lineWidth = 1.5
-    for (let i = 16; i <= 256; i += 32) {
-      g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.stroke()
-      g.beginPath(); g.moveTo(0, i); g.lineTo(256, i); g.stroke()
-    }
-  }, [5, 5])
-
-  const baseMat = new THREE.MeshStandardMaterial({
-    map: gridTex,
-    color: 0x14101c,
-    roughness: 0.22,
-    metalness: 0.72,
-  })
-  root.add(plazaPlane(baseMat, ctx.colliders))
-
-  const lineMat = new THREE.MeshStandardMaterial({
-    color: NEON_CYAN,
-    emissive: NEON_CYAN,
-    emissiveIntensity: 0.85,
-    roughness: 0.3,
-    metalness: 0.4,
-  })
-  ctx.flickerMats.push({ mat: lineMat, base: 0.85, t: Math.random() * 3 })
-
-  for (const [lx, lz, len, rot] of [
-    [0, 0, PLAZA_SIZE - 2, 0], [0, 0, PLAZA_SIZE - 2, Math.PI / 2],
-  ] as [number, number, number, number][]) {
-    const line = new THREE.Mesh(new THREE.PlaneGeometry(0.12, len), lineMat)
-    line.rotation.x = -Math.PI / 2
-    line.rotation.z = rot
-    line.position.set(lx, 0.018, lz)
-    root.add(line)
-  }
-
-  const hubGlow = new THREE.Mesh(
-    new THREE.PlaneGeometry(10, 10),
-    new THREE.MeshBasicMaterial({
-      color: NEON_CYAN,
-      map: ctx.glowTexture,
-      transparent: true,
-      opacity: 0.14,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-  )
-  hubGlow.rotation.x = -Math.PI / 2
-  hubGlow.position.y = 0.016
-  root.add(hubGlow)
-
-  const cornerMat = lineMat.clone()
-  cornerMat.color.set(NEON_PINK)
-  cornerMat.emissive.set(NEON_PINK)
-  for (const [cx, cz] of [[-14, -14], [14, -14], [-14, 14], [14, 14]] as [number, number][]) {
-    const corner = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 2.5), cornerMat)
-    corner.rotation.x = -Math.PI / 2
-    corner.position.set(cx, 0.017, cz)
-    root.add(corner)
-  }
-  ctx.flickerMats.push({ mat: cornerMat, base: 0.7, t: Math.random() * 4 })
-
-  const p1 = puddle(ctx, 0, 0, 4, NEON_CYAN, 0.14)
-  root.add(p1.mesh)
-  ctx.flickerMats.push({ mat: p1.mat, base: p1.intensity, t: Math.random() * 2 })
-
-  const streetMat = new THREE.MeshStandardMaterial({ color: 0x0e0c16, roughness: 0.15, metalness: 0.78 })
-  root.add(streetRing(streetMat))
-  return root
-}
-
-// ── Agent B: Broken NYC Street ──────────────────────────────────────────────
-
-function buildBrokenNyc(ctx: GroundBuildContext): THREE.Group {
-  const root = new THREE.Group()
-  root.name = 'ground-broken-nyc'
-
-  const asphaltTex = makeCanvasTexture(512, 512, (g) => {
-    g.fillStyle = '#1a1818'
-    g.fillRect(0, 0, 512, 512)
-    for (let i = 0; i < 120; i++) {
-      g.strokeStyle = `rgba(30,28,26,${0.3 + rand(i) * 0.5})`
-      g.lineWidth = 1 + rand(i + 1) * 2
-      g.beginPath()
-      g.moveTo(rand(i + 2) * 512, rand(i + 3) * 512)
-      for (let s = 0; s < 4; s++) g.lineTo(rand(i + s + 4) * 512, rand(i + s + 5) * 512)
-      g.stroke()
-    }
-    g.fillStyle = 'rgba(40,38,34,0.6)'
-    for (let p = 0; p < 18; p++) {
-      g.beginPath()
-      g.ellipse(rand(p + 10) * 512, rand(p + 11) * 512, 8 + rand(p + 12) * 20, 6 + rand(p + 13) * 14, 0, 0, Math.PI * 2)
-      g.fill()
-    }
-  }, [3, 3])
-
-  const asphaltMat = new THREE.MeshStandardMaterial({
-    map: asphaltTex,
-    color: 0x2a2824,
-    roughness: 0.88,
-    metalness: 0.12,
-  })
-  root.add(plazaPlane(asphaltMat, ctx.colliders))
-
-  const lineMat = new THREE.MeshStandardMaterial({
-    color: NEON_YELLOW,
-    emissive: NEON_YELLOW,
-    emissiveIntensity: 0.35,
-    roughness: 0.6,
-    metalness: 0.1,
-  })
-  for (let i = -16; i <= 16; i += 8) {
-    const dash = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.14), lineMat)
-    dash.rotation.x = -Math.PI / 2
-    dash.position.set(i, 0.015, 0)
-    root.add(dash)
-  }
-
-  const curbMat = new THREE.MeshStandardMaterial({ color: 0x4a4844, roughness: 0.92, metalness: 0.05 })
-  const curbW = 0.55
-  for (const [bx, bz, rw, rh] of [
-    [0, -PLAZA_HALF + curbW / 2, PLAZA_SIZE, curbW],
-    [0, PLAZA_HALF - curbW / 2, PLAZA_SIZE, curbW],
-    [-PLAZA_HALF + curbW / 2, 0, curbW, PLAZA_SIZE],
-    [PLAZA_HALF - curbW / 2, 0, curbW, PLAZA_SIZE],
-  ] as [number, number, number, number][]) {
-    const curb = new THREE.Mesh(new THREE.PlaneGeometry(rw, rh), curbMat)
-    curb.rotation.x = -Math.PI / 2
-    curb.position.set(bx, 0.012, bz)
-    root.add(curb)
-  }
-
-  const manholeMat = new THREE.MeshStandardMaterial({ color: 0x3a3834, roughness: 0.55, metalness: 0.75 })
-  for (const [mx, mz] of [[-6, -8], [9, 5], [-11, 12], [7, -12]] as [number, number][]) {
-    const mh = new THREE.Mesh(new THREE.CircleGeometry(0.55, 12), manholeMat)
-    mh.rotation.x = -Math.PI / 2
-    mh.position.set(mx, 0.02, mz)
-    root.add(mh)
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.58, 12), manholeMat)
-    ring.rotation.x = -Math.PI / 2
-    ring.position.set(mx, 0.021, mz)
-    root.add(ring)
-  }
-
-  const oilMat = new THREE.MeshStandardMaterial({
-    color: 0x1a1420,
-    emissive: 0x442266,
-    emissiveIntensity: 0.25,
-    roughness: 0.15,
-    metalness: 0.85,
-    transparent: true,
-    opacity: 0.7,
-    depthWrite: false,
-  })
-  const oil = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 2.2), oilMat)
-  oil.rotation.x = -Math.PI / 2
-  oil.position.set(-8, 0.018, 4)
-  oil.rotation.z = 0.3
-  root.add(oil)
-
-  const p1 = puddle(ctx, 5, -6, 2.5, NEON_PINK, 0.08)
-  root.add(p1.mesh)
-
-  const streetMat = new THREE.MeshStandardMaterial({ color: 0x1a1814, roughness: 0.9, metalness: 0.08 })
-  root.add(streetRing(streetMat))
-  return root
-}
-
-// ── Agent C: Rain Mirror ────────────────────────────────────────────────────
-
-function buildRainMirror(ctx: GroundBuildContext): THREE.Group {
-  const root = new THREE.Group()
-  root.name = 'ground-rain-mirror'
-
-  const mirrorMat = new THREE.MeshStandardMaterial({
-    color: 0x0a0812,
-    roughness: 0.04,
-    metalness: 0.95,
-  })
-  root.add(plazaPlane(mirrorMat, ctx.colliders))
-
-  for (const [px, pz, r, col, int] of [
-    [0, 0, 6, NEON_CYAN, 0.18],
-    [-10, 8, 3.5, NEON_PINK, 0.12],
-    [12, -5, 4, NEON_CYAN, 0.1],
-    [-5, -10, 3, NEON_PINK, 0.11],
-    [8, 10, 2.8, NEON_CYAN, 0.09],
-  ] as [number, number, number, number, number][]) {
-    const p = puddle(ctx, px, pz, r, col, int, 0.022)
-    root.add(p.mesh)
-    ctx.flickerMats.push({ mat: p.mat, base: int, t: Math.random() * 3 })
-  }
-
-  const grooveMat = new THREE.MeshStandardMaterial({
-    color: 0x080610,
-    roughness: 0.12,
-    metalness: 0.88,
-  })
-  for (let a = 0; a < 4; a++) {
-    const groove = new THREE.Mesh(new THREE.PlaneGeometry(0.08, 14), grooveMat)
-    groove.rotation.x = -Math.PI / 2
-    groove.rotation.z = (a / 4) * Math.PI * 2 + Math.PI / 4
-    groove.position.set(0, 0.014, 7)
-    groove.rotation.y = (a / 4) * Math.PI * 2
-    root.add(groove)
-  }
-
-  const rippleMat = new THREE.MeshBasicMaterial({
-    color: NEON_CYAN,
-    transparent: true,
-    opacity: 0.06,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  })
-  for (let r = 0; r < 3; r++) {
-    const ripple = new THREE.Mesh(new THREE.RingGeometry(1.5 + r * 1.2, 1.7 + r * 1.2, 32), rippleMat)
-    ripple.rotation.x = -Math.PI / 2
-    ripple.position.set(0, 0.019, 0)
-    root.add(ripple)
-  }
-
-  const streetMat = new THREE.MeshStandardMaterial({ color: 0x06050c, roughness: 0.06, metalness: 0.92 })
-  root.add(streetRing(streetMat))
-  return root
-}
-
-// ── Agent D: Industrial Grate Yard ──────────────────────────────────────────
-
-function makeGrateTexture() {
+function makeGrateTexture(variant: 'standard' | 'heavy' | 'fine' | 'rusty') {
   return makeCanvasTexture(128, 128, (g) => {
-    g.fillStyle = '#1a1822'
+    g.fillStyle = variant === 'rusty' ? '#2a2018' : '#1a1822'
     g.fillRect(0, 0, 128, 128)
-    g.strokeStyle = '#3a4050'
-    g.lineWidth = 2
-    for (let i = 0; i <= 128; i += 16) {
+    const step = variant === 'fine' ? 12 : variant === 'heavy' ? 20 : 16
+    g.strokeStyle = variant === 'heavy' ? '#4a5060' : '#3a4050'
+    g.lineWidth = variant === 'heavy' ? 3 : 2
+    for (let i = 0; i <= 128; i += step) {
       g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 128); g.stroke()
       g.beginPath(); g.moveTo(0, i); g.lineTo(128, i); g.stroke()
     }
     g.fillStyle = '#0a0810'
-    for (let x = 8; x < 128; x += 16) {
-      for (let y = 8; y < 128; y += 16) {
-        g.fillRect(x - 3, y - 3, 6, 6)
+    const hole = variant === 'fine' ? 4 : 6
+    for (let x = step / 2; x < 128; x += step) {
+      for (let y = step / 2; y < 128; y += step) {
+        g.fillRect(x - hole / 2, y - hole / 2, hole, hole)
+      }
+    }
+    if (variant === 'rusty') {
+      g.fillStyle = 'rgba(120,60,30,0.35)'
+      for (let r = 0; r < 8; r++) {
+        g.beginPath()
+        g.ellipse(rand(r) * 128, rand(r + 1) * 128, 10 + rand(r + 2) * 18, 8 + rand(r + 3) * 12, 0, 0, Math.PI * 2)
+        g.fill()
       }
     }
   }, [4, 4])
 }
 
-function buildIndustrialGrate(ctx: GroundBuildContext): THREE.Group {
-  const root = new THREE.Group()
-  root.name = 'ground-industrial-grate'
-
-  const grateTex = makeGrateTexture()
-  const grateMat = new THREE.MeshStandardMaterial({
-    map: grateTex,
-    color: 0x3a4048,
-    roughness: 0.35,
-    metalness: 0.88,
+function makeLabelTexture(text: string, color = '#ffe14d') {
+  return makeCanvasTexture(256, 64, (g) => {
+    g.fillStyle = '#141018'
+    g.fillRect(0, 0, 256, 64)
+    g.font = 'bold 28px Courier New, monospace'
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    g.fillStyle = color
+    g.shadowColor = color
+    g.shadowBlur = 10
+    g.fillText(text, 128, 32)
   })
-  const solidMat = new THREE.MeshStandardMaterial({ color: 0x141018, roughness: 0.75, metalness: 0.2 })
+}
 
-  for (let gz = -PLAZA_HALF + 2; gz < PLAZA_HALF; gz += 4) {
-    for (let gx = -PLAZA_HALF + 2; gx < PLAZA_HALF; gx += 4) {
-      const isGrate = (Math.floor(gx / 4) + Math.floor(gz / 4)) % 2 === 0
-      const tile = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), isGrate ? grateMat : solidMat)
-      tile.rotation.x = -Math.PI / 2
-      tile.position.set(gx + 1.8, isGrate ? 0.008 : 0.004, gz + 1.8)
-      tile.receiveShadow = true
-      root.add(tile)
+function addBolts(root: THREE.Group, cx: number, cz: number, half: number, y: number, mat: THREE.Material) {
+  for (const [ox, oz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as [number, number][]) {
+    const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.06, 6), mat)
+    bolt.position.set(cx + ox * (half - 0.15), y, cz + oz * (half - 0.15))
+    root.add(bolt)
+  }
+}
+
+function addDrainChannel(
+  root: THREE.Group,
+  ctx: GroundBuildContext,
+  x: number,
+  z: number,
+  len: number,
+  rotZ: number,
+  color: number,
+  width = 0.42,
+  y = 0.012,
+) {
+  const recess = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, len),
+    new THREE.MeshStandardMaterial({ color: 0x080610, roughness: 0.9, metalness: 0.1 }),
+  )
+  recess.rotation.x = -Math.PI / 2
+  recess.rotation.z = rotZ
+  recess.position.set(x, y, z)
+  root.add(recess)
+
+  const glowMat = new THREE.MeshStandardMaterial({
+    color,
+    emissive: color,
+    emissiveIntensity: 0.65,
+    roughness: 0.25,
+    metalness: 0.5,
+  })
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(width * 0.55, len * 0.92), glowMat)
+  glow.rotation.copy(recess.rotation)
+  glow.position.set(x, y + 0.004, z)
+  root.add(glow)
+  ctx.flickerMats.push({ mat: glowMat, base: 0.65, t: Math.random() * 3 })
+}
+
+// ── Agent A: Deep Grate Cathedral ─────────────────────────────────────────────
+
+function buildGrateDeep(ctx: GroundBuildContext): THREE.Group {
+  const root = new THREE.Group()
+  root.name = 'grate-deep'
+  addCollider(root, ctx)
+
+  const grateTex = makeGrateTexture('heavy')
+  const grateMat = new THREE.MeshStandardMaterial({ map: grateTex, color: 0x3a4450, roughness: 0.32, metalness: 0.9 })
+  const solidMat = new THREE.MeshStandardMaterial({ color: 0x121018, roughness: 0.78, metalness: 0.25 })
+  const boltMat = new THREE.MeshStandardMaterial({ color: 0x5a6068, roughness: 0.35, metalness: 0.92 })
+  const lipMat = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.4, metalness: 0.85 })
+
+  const tileSize = 3.2
+  for (let gz = -PLAZA_HALF + 1.6; gz < PLAZA_HALF; gz += tileSize) {
+    for (let gx = -PLAZA_HALF + 1.6; gx < PLAZA_HALF; gx += tileSize) {
+      const isGrate = (Math.floor(gx / tileSize) + Math.floor(gz / tileSize)) % 2 === 0
+      const cx = gx + tileSize / 2
+      const cz = gz + tileSize / 2
+
+      if (isGrate) {
+        const pit = new THREE.Mesh(new THREE.BoxGeometry(tileSize - 0.08, 0.12, tileSize - 0.08), solidMat)
+        pit.position.set(cx, -0.06, cz)
+        root.add(pit)
+        const grate = new THREE.Mesh(new THREE.PlaneGeometry(tileSize - 0.2, tileSize - 0.2), grateMat)
+        grate.rotation.x = -Math.PI / 2
+        grate.position.set(cx, 0.018, cz)
+        grate.receiveShadow = true
+        root.add(grate)
+        addBolts(root, cx, cz, tileSize / 2, 0.022, boltMat)
+
+        if (rand(gx * 7 + gz) > 0.82) {
+          const steam = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.8, 1.4),
+            new THREE.MeshBasicMaterial({ color: 0x8899aa, transparent: true, opacity: 0.12, depthWrite: false, blending: THREE.AdditiveBlending }),
+          )
+          steam.position.set(cx, 0.05, cz)
+          root.add(steam)
+        }
+      } else {
+        const slab = new THREE.Mesh(new THREE.PlaneGeometry(tileSize - 0.1, tileSize - 0.1), solidMat)
+        slab.rotation.x = -Math.PI / 2
+        slab.position.set(cx, 0.004, cz)
+        root.add(slab)
+      }
     }
   }
 
-  const mainCollider = new THREE.Mesh(new THREE.PlaneGeometry(PLAZA_SIZE, PLAZA_SIZE), solidMat)
-  mainCollider.rotation.x = -Math.PI / 2
-  mainCollider.visible = false
-  ctx.colliders.push(mainCollider)
-  root.add(mainCollider)
-
-  const channelMat = new THREE.MeshStandardMaterial({
-    color: NEON_CYAN,
-    emissive: NEON_CYAN,
-    emissiveIntensity: 0.55,
-    roughness: 0.3,
-    metalness: 0.5,
-  })
-  ctx.flickerMats.push({ mat: channelMat, base: 0.55, t: Math.random() * 2 })
-
-  for (const [cx, cz, len, rot] of [
-    [0, -PLAZA_HALF + 1.2, PLAZA_SIZE - 4, 0],
-    [0, PLAZA_HALF - 1.2, PLAZA_SIZE - 4, 0],
-    [-PLAZA_HALF + 1.2, 0, PLAZA_SIZE - 4, Math.PI / 2],
-    [PLAZA_HALF - 1.2, 0, PLAZA_SIZE - 4, Math.PI / 2],
-  ] as [number, number, number, number][]) {
-    const channel = new THREE.Mesh(new THREE.PlaneGeometry(0.35, len), channelMat)
-    channel.rotation.x = -Math.PI / 2
-    channel.rotation.z = rot
-    channel.position.set(cx, 0.016, cz)
-    root.add(channel)
+  // Raised steel perimeter lip
+  const lipH = 0.14
+  for (const [bx, bz, rw, rh, px, pz] of [
+    [PLAZA_SIZE, lipH, 0.22, PLAZA_SIZE, 0, -PLAZA_HALF],
+    [PLAZA_SIZE, lipH, 0.22, PLAZA_SIZE, 0, PLAZA_HALF],
+    [lipH, PLAZA_SIZE, PLAZA_SIZE, 0.22, -PLAZA_HALF, 0],
+    [lipH, PLAZA_SIZE, PLAZA_SIZE, 0.22, PLAZA_HALF, 0],
+  ] as [number, number, number, number, number, number][]) {
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(rw, bx, rh), lipMat)
+    lip.position.set(px, lipH / 2, pz)
+    lip.castShadow = true
+    root.add(lip)
   }
 
-  const hazardMat = new THREE.MeshStandardMaterial({
-    color: NEON_YELLOW,
-    emissive: NEON_ORANGE,
-    emissiveIntensity: 0.4,
-    roughness: 0.5,
-    metalness: 0.2,
-  })
-  for (let i = -18; i < 18; i += 2) {
-    const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), hazardMat)
+  // Central octagonal drain hub
+  const hubMat = new THREE.MeshStandardMaterial({ color: 0x2a3040, roughness: 0.35, metalness: 0.88 })
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 0.9), hubMat)
+    seg.position.set(Math.cos(a) * 2.2, 0.02, Math.sin(a) * 2.2)
+    seg.rotation.y = -a
+    root.add(seg)
+  }
+  const hubGrate = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.05, 8), grateMat)
+  hubGrate.position.y = 0.025
+  root.add(hubGrate)
+
+  for (const ch of [
+    [0, -PLAZA_HALF + 1.4, PLAZA_SIZE - 3, 0],
+    [0, PLAZA_HALF - 1.4, PLAZA_SIZE - 3, 0],
+    [-PLAZA_HALF + 1.4, 0, PLAZA_SIZE - 3, Math.PI / 2],
+    [PLAZA_HALF - 1.4, 0, PLAZA_SIZE - 3, Math.PI / 2],
+  ] as [number, number, number, number][]) {
+    addDrainChannel(root, ctx, ch[0], ch[1], ch[2], ch[3], NEON_CYAN, 0.38, 0.008)
+  }
+
+  root.add(streetRing(new THREE.MeshStandardMaterial({ map: grateTex, color: 0x2a3038, roughness: 0.35, metalness: 0.85 })))
+  return root
+}
+
+// ── Agent B: Cargo Dock Heavy ─────────────────────────────────────────────────
+
+function buildGrateCargo(ctx: GroundBuildContext): THREE.Group {
+  const root = new THREE.Group()
+  root.name = 'grate-cargo'
+  addCollider(root, ctx)
+
+  const steelTex = makeCanvasTexture(256, 256, (g) => {
+    g.fillStyle = '#2a2a30'
+    g.fillRect(0, 0, 256, 256)
+    for (let i = 0; i < 40; i++) {
+      g.fillStyle = `rgba(60,60,68,${0.2 + rand(i) * 0.3})`
+      g.fillRect(rand(i + 1) * 256, rand(i + 2) * 256, 30 + rand(i + 3) * 50, 2)
+    }
+    g.fillStyle = '#4a5058'
+    for (let r = 0; r < 24; r++) {
+      g.beginPath()
+      g.arc(rand(r + 10) * 256, rand(r + 11) * 256, 2.5, 0, Math.PI * 2)
+      g.fill()
+    }
+  }, [4, 4])
+
+  const steelMat = new THREE.MeshStandardMaterial({ map: steelTex, color: 0x3a4048, roughness: 0.45, metalness: 0.88 })
+  const grateMat = new THREE.MeshStandardMaterial({ map: makeGrateTexture('standard'), color: 0x3a4048, roughness: 0.38, metalness: 0.85 })
+  const rubberMat = new THREE.MeshStandardMaterial({ color: 0x4a2020, roughness: 0.92, metalness: 0.05 })
+
+  // Forklift lanes (solid steel)
+  for (const lane of [-6, 6] as number[]) {
+    const path = new THREE.Mesh(new THREE.PlaneGeometry(2.8, PLAZA_SIZE - 4), steelMat)
+    path.rotation.x = -Math.PI / 2
+    path.position.set(lane, 0.006, 0)
+    root.add(path)
+    const dashMat = new THREE.MeshStandardMaterial({ color: NEON_YELLOW, emissive: NEON_YELLOW, emissiveIntensity: 0.4 })
+    for (let d = -16; d <= 16; d += 3) {
+      const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.1), dashMat)
+      dash.rotation.x = -Math.PI / 2
+      dash.position.set(lane, 0.012, d)
+      root.add(dash)
+    }
+  }
+
+  // Grate zones between lanes
+  for (let gz = -PLAZA_HALF + 2; gz < PLAZA_HALF; gz += 3.5) {
+    for (const gx of [-13, -2.5, 2.5, 13] as number[]) {
+      const gtile = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), grateMat)
+      gtile.rotation.x = -Math.PI / 2
+      gtile.position.set(gx, 0.008, gz + 1.75)
+      root.add(gtile)
+    }
+  }
+
+  // Loading zones A/B/C
+  const zones = ['ZONE A', 'ZONE B', 'ZONE C']
+  for (let zi = 0; zi < 3; zi++) {
+    const zx = -12 + zi * 12
+    const labelTex = makeLabelTexture(zones[zi], '#ff6622')
+    const labelMat = new THREE.MeshStandardMaterial({ map: labelTex, emissive: NEON_ORANGE, emissiveMap: labelTex, emissiveIntensity: 0.55 })
+    const label = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 0.55), labelMat)
+    label.rotation.x = -Math.PI / 2
+    label.position.set(zx, 0.014, PLAZA_HALF - 3)
+    root.add(label)
+    ctx.flickerMats.push({ mat: labelMat, base: 0.55, t: Math.random() * 4 })
+
+    const zonePlate = new THREE.Mesh(new THREE.PlaneGeometry(8, 6), steelMat)
+    zonePlate.rotation.x = -Math.PI / 2
+    zonePlate.position.set(zx, 0.005, PLAZA_HALF - 8)
+    root.add(zonePlate)
+  }
+
+  // Chevron hazard border
+  for (let i = -18; i <= 18; i += 1.2) {
+    const isYellow = Math.floor(i / 1.2) % 2 === 0
+    const stripe = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.0, 1.0),
+      new THREE.MeshStandardMaterial({
+        color: isYellow ? NEON_YELLOW : 0x141018,
+        emissive: isYellow ? NEON_ORANGE : 0x000000,
+        emissiveIntensity: isYellow ? 0.35 : 0,
+      }),
+    )
     stripe.rotation.x = -Math.PI / 2
-    stripe.position.set(i, 0.017, -PLAZA_HALF + 0.5)
+    stripe.rotation.z = Math.PI / 4
+    stripe.position.set(i, 0.016, -PLAZA_HALF + 0.55)
     root.add(stripe)
   }
 
-  const hatchMat = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.4, metalness: 0.85 })
-  for (const [hx, hz] of [[-8, 6], [10, -8], [0, 12]] as [number, number][]) {
-    const hatch = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), hatchMat)
-    hatch.rotation.x = -Math.PI / 2
-    hatch.position.set(hx, 0.019, hz)
-    root.add(hatch)
+  // Rubber bumpers + chain anchors
+  for (const [bx, bz] of [[-18, -18], [18, -18], [-18, 18], [18, 18]] as [number, number][]) {
+    const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.18, 0.35), rubberMat)
+    bumper.position.set(bx, 0.09, bz)
+    bumper.rotation.y = Math.atan2(bx, bz)
+    root.add(bumper)
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.025, 8, 12), steelMat)
+    ring.rotation.x = Math.PI / 2
+    ring.position.set(bx * 0.92, 0.04, bz * 0.92)
+    root.add(ring)
   }
 
-  const streetMat = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.4, metalness: 0.7 })
-  root.add(streetRing(streetMat))
+  addDrainChannel(root, ctx, 0, 0, 28, 0, NEON_CYAN, 0.3, 0.007)
+  addDrainChannel(root, ctx, 0, 0, 28, Math.PI / 2, NEON_CYAN, 0.3, 0.007)
+
+  root.add(streetRing(steelMat, (sr) => {
+    for (let i = -20; i <= 20; i += 4) {
+      const b = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.12), rubberMat)
+      b.rotation.x = -Math.PI / 2
+      b.position.set(i, 0.008, -(STREET_INNER + STREET_OUTER) / 2)
+      sr.add(b)
+    }
+  }))
+  return root
+}
+
+// ── Agent C: Neon Drain Network ─────────────────────────────────────────────
+
+function buildGrateNeonDrain(ctx: GroundBuildContext): THREE.Group {
+  const root = new THREE.Group()
+  root.name = 'grate-neon-drain'
+  addCollider(root, ctx)
+
+  const grateTex = makeGrateTexture('fine')
+  const grateMat = new THREE.MeshStandardMaterial({ map: grateTex, color: 0x3a4858, roughness: 0.3, metalness: 0.9 })
+  const solidMat = new THREE.MeshStandardMaterial({ color: 0x100e18, roughness: 0.7, metalness: 0.3 })
+
+  const tileSize = 3.0
+  for (let gz = -PLAZA_HALF + 1.5; gz < PLAZA_HALF; gz += tileSize) {
+    for (let gx = -PLAZA_HALF + 1.5; gx < PLAZA_HALF; gx += tileSize) {
+      const isGrate = (Math.floor(gx / 3) + Math.floor(gz / 3)) % 2 === 0
+      const cx = gx + tileSize / 2
+      const cz = gz + tileSize / 2
+      const tile = new THREE.Mesh(new THREE.PlaneGeometry(tileSize - 0.15, tileSize - 0.15), isGrate ? grateMat : solidMat)
+      tile.rotation.x = -Math.PI / 2
+      tile.position.set(cx, isGrate ? 0.01 : 0.004, cz)
+      root.add(tile)
+
+      if (isGrate) {
+        const underColor = rand(cx + cz) > 0.5 ? NEON_CYAN : NEON_PINK
+        const underMat = new THREE.MeshStandardMaterial({
+          color: underColor,
+          emissive: underColor,
+          emissiveIntensity: 0.45,
+          transparent: true,
+          opacity: 0.85,
+        })
+        const under = new THREE.Mesh(new THREE.PlaneGeometry(tileSize - 0.5, tileSize - 0.5), underMat)
+        under.rotation.x = -Math.PI / 2
+        under.position.set(cx, 0.002, cz)
+        root.add(under)
+        ctx.flickerMats.push({ mat: underMat, base: 0.45, t: Math.random() * 3 })
+      }
+    }
+  }
+
+  // Grid drain network — horizontal + vertical every 5 units
+  for (let i = -PLAZA_HALF + 2.5; i <= PLAZA_HALF; i += 5) {
+    addDrainChannel(root, ctx, i, 0, PLAZA_SIZE - 4, Math.PI / 2, i % 10 === 0 ? NEON_PINK : NEON_CYAN, 0.32)
+    addDrainChannel(root, ctx, 0, i, PLAZA_SIZE - 4, 0, i % 10 === 0 ? NEON_PINK : NEON_CYAN, 0.32)
+  }
+
+  // Junction nodes
+  for (let jx = -15; jx <= 15; jx += 5) {
+    for (let jz = -15; jz <= 15; jz += 5) {
+      const nodeMat = new THREE.MeshStandardMaterial({
+        color: NEON_CYAN,
+        emissive: NEON_PINK,
+        emissiveIntensity: 1.0,
+        roughness: 0.2,
+        metalness: 0.6,
+      })
+      const node = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.08, 0.35), nodeMat)
+      node.position.set(jx, 0.022, jz)
+      root.add(node)
+      ctx.flickerMats.push({ mat: nodeMat, base: 1.0, t: Math.random() * 2 })
+    }
+  }
+
+  // Central drain hub
+  const hubGlow = new THREE.Mesh(
+    new THREE.RingGeometry(1.2, 2.8, 32),
+    new THREE.MeshBasicMaterial({ color: NEON_CYAN, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, map: ctx.glowTexture }),
+  )
+  hubGlow.rotation.x = -Math.PI / 2
+  hubGlow.position.y = 0.024
+  root.add(hubGlow)
+  const hubGrate = new THREE.Mesh(new THREE.CircleGeometry(2.0, 16), grateMat)
+  hubGrate.rotation.x = -Math.PI / 2
+  hubGrate.position.y = 0.026
+  root.add(hubGrate)
+  for (let ring = 0; ring < 3; ring++) {
+    const r = new THREE.Mesh(
+      new THREE.TorusGeometry(0.8 + ring * 0.45, 0.025, 6, 24),
+      new THREE.MeshBasicMaterial({ color: ring % 2 ? NEON_PINK : NEON_CYAN, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }),
+    )
+    r.rotation.x = Math.PI / 2
+    r.position.y = 0.03 + ring * 0.01
+    root.add(r)
+  }
+
+  root.add(streetRing(new THREE.MeshStandardMaterial({ color: 0x0a0812, roughness: 0.2, metalness: 0.8 }), (sr) => {
+    const mid = (STREET_INNER + STREET_OUTER) / 2
+    for (const side of [-1, 1]) {
+      addDrainChannel(sr, ctx, side * mid, 0, PLAZA_SIZE, Math.PI / 2, NEON_CYAN, 0.28, 0.006)
+    }
+  }))
+  return root
+}
+
+// ── Agent D: Rust & Machinery ───────────────────────────────────────────────
+
+function buildGrateRustPipe(ctx: GroundBuildContext): THREE.Group {
+  const root = new THREE.Group()
+  root.name = 'grate-rust-pipe'
+  addCollider(root, ctx)
+
+  const grateTex = makeGrateTexture('rusty')
+  const grateMat = new THREE.MeshStandardMaterial({ map: grateTex, color: 0x4a4038, roughness: 0.55, metalness: 0.75 })
+  const solidMat = new THREE.MeshStandardMaterial({ color: 0x1a1614, roughness: 0.82, metalness: 0.2 })
+  const pipeMat = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.42, metalness: 0.82 })
+  const rustMat = new THREE.MeshStandardMaterial({ color: 0x6a4030, roughness: 0.88, metalness: 0.35 })
+
+  // Mixed tile sizes
+  for (let gz = -PLAZA_HALF + 1; gz < PLAZA_HALF; ) {
+    for (let gx = -PLAZA_HALF + 1; gx < PLAZA_HALF; ) {
+      const big = rand(gx + gz) > 0.65
+      const sz = big ? 5.5 : 2.8
+      const isGrate = (Math.floor(gx) + Math.floor(gz)) % 2 === 0
+      const cx = gx + sz / 2
+      const cz = gz + sz / 2
+      const mat = isGrate ? grateMat : solidMat
+      const tile = new THREE.Mesh(new THREE.PlaneGeometry(sz - 0.12, sz - 0.12), mat)
+      tile.rotation.x = -Math.PI / 2
+      tile.position.set(cx, 0.006, cz)
+      root.add(tile)
+
+      if (!isGrate && rand(gx) > 0.55) {
+        const rust = new THREE.Mesh(new THREE.PlaneGeometry(sz * 0.4, sz * 0.35), rustMat)
+        rust.rotation.x = -Math.PI / 2
+        rust.position.set(cx + (rand(gz) - 0.5) * sz * 0.3, 0.008, cz + (rand(gx) - 0.5) * sz * 0.3)
+        rust.rotation.z = rand(gx + gz) * 0.5
+        root.add(rust)
+      }
+      gx += sz
+    }
+    gz += rand(gz) > 0.5 ? 5.5 : 2.8
+  }
+
+  // Pipe runs
+  for (const [px, pz, len, rotY] of [
+    [-8, -5, 22, 0], [10, 8, 18, Math.PI / 2], [0, -12, 16, 0.3],
+  ] as [number, number, number, number][]) {
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, len, 10), pipeMat)
+    pipe.rotation.z = Math.PI / 2
+    pipe.rotation.y = rotY
+    pipe.position.set(px, 0.14, pz)
+    pipe.castShadow = true
+    root.add(pipe)
+    const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.06, 10), pipeMat)
+    flange.position.set(px - len / 2 + 0.5, 0.14, pz)
+    root.add(flange)
+  }
+
+  // Valve wheels
+  for (const [vx, vz] of [[-4, -8], [12, 4], [-10, 10]] as [number, number][]) {
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.35, 8), pipeMat)
+    stem.position.set(vx, 0.18, vz)
+    root.add(stem)
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.035, 8, 16), rustMat)
+    wheel.rotation.x = Math.PI / 2
+    wheel.position.set(vx, 0.36, vz)
+    root.add(wheel)
+  }
+
+  // Cable tray channels
+  for (const side of [-1, 1]) {
+    const tray = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, PLAZA_SIZE - 6), new THREE.MeshStandardMaterial({ color: 0x2a2830, roughness: 0.5, metalness: 0.7 }))
+    tray.position.set(side * 16, 0.04, 0)
+    root.add(tray)
+    for (let c = -14; c <= 14; c += 4) {
+      const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.45, 6), new THREE.MeshStandardMaterial({ color: 0x1a1a22, roughness: 0.6, metalness: 0.5 }))
+      cable.rotation.z = Math.PI / 2
+      cable.position.set(side * 16, 0.1, c)
+      root.add(cable)
+    }
+  }
+
+  // Stencil warnings
+  for (const [tx, tz, text, col] of [
+    [-14, 0, 'HIGH VOLT', '#ff6622'],
+    [14, -6, 'STEAM', '#00f6ff'],
+    [0, 14, 'NO STEP', '#ffe14d'],
+  ] as [number, number, string, string][]) {
+    const tex = makeLabelTexture(text, col)
+    const mat = new THREE.MeshStandardMaterial({ map: tex, emissive: parseInt(col.replace('#', ''), 16), emissiveMap: tex, emissiveIntensity: 0.5 })
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 0.5), mat)
+    sign.rotation.x = -Math.PI / 2
+    sign.position.set(tx, 0.015, tz)
+    root.add(sign)
+  }
+
+  // Oil leaks
+  const oilMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1020,
+    emissive: 0x553366,
+    emissiveIntensity: 0.3,
+    roughness: 0.1,
+    metalness: 0.9,
+    transparent: true,
+    opacity: 0.75,
+    depthWrite: false,
+  })
+  for (const [ox, oz, sx, sz] of [[6, -4, 2.5, 1.8], [-7, 7, 3, 2.2], [2, -10, 2, 2.5]] as [number, number, number, number][]) {
+    const oil = new THREE.Mesh(new THREE.PlaneGeometry(sx, sz), oilMat)
+    oil.rotation.x = -Math.PI / 2
+    oil.position.set(ox, 0.013, oz)
+    root.add(oil)
+  }
+
+  addDrainChannel(root, ctx, -PLAZA_HALF + 1.3, 0, PLAZA_SIZE - 3, Math.PI / 2, NEON_ORANGE, 0.36)
+  addDrainChannel(root, ctx, 0, PLAZA_HALF - 1.3, PLAZA_SIZE - 3, 0, NEON_ORANGE, 0.36)
+
+  root.add(streetRing(new THREE.MeshStandardMaterial({ map: grateTex, color: 0x2a2420, roughness: 0.5, metalness: 0.7 })))
   return root
 }
 
 const BUILDERS: Record<GroundConceptId, (ctx: GroundBuildContext) => THREE.Group> = {
-  'neon-grid': buildNeonGrid,
-  'broken-nyc': buildBrokenNyc,
-  'rain-mirror': buildRainMirror,
-  'industrial-grate': buildIndustrialGrate,
+  'grate-deep': buildGrateDeep,
+  'grate-cargo': buildGrateCargo,
+  'grate-neon-drain': buildGrateNeonDrain,
+  'grate-rust-pipe': buildGrateRustPipe,
 }
 
 export function buildGroundConcept(id: GroundConceptId, ctx: GroundBuildContext): THREE.Group {
   return BUILDERS[id](ctx)
-}
-
-export function conceptIndex(id: GroundConceptId): number {
-  return GROUND_CONCEPTS.findIndex((c) => c.id === id)
 }
 
 export function conceptByKey(key: string): GroundConceptId | null {
