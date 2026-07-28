@@ -710,9 +710,6 @@ function buildStreetRing(ctx: CitySurroundContext): THREE.Group {
 /** Master builder — all surround systems + stats for budget tracking. */
 export function buildCitySurround(ctx: CitySurroundContext): CitySurroundStats {
   buildPlazaStreet({ scene: ctx.scene, flickerMats: ctx.flickerMats })
-  buildPerimeterCity(ctx)
-  buildVerticalNeonSigns(ctx)
-  buildSkylineBackdrop(ctx)
 
   let meshCount = 0
   let instancedMeshCount = 0
