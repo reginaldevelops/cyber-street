@@ -12,6 +12,7 @@ import {
   type GroundConceptId,
 } from './groundConcepts.js'
 import { buildCitySurround } from './citySurround.js'
+import { buildModernTower } from './modernBuilding.js'
 import { buildPlayerCharacter } from './playerCharacter.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
@@ -237,10 +238,41 @@ export class Game {
       colliders: this.worldColliders,
     })
 
+    this.buildBackdropTowers()
+
     this.rain = this.makeRain()
     this.scene.add(this.rain)
 
     this.ambience = populateSceneAmbience(this.scene, this.flickerMats)
+  }
+
+  /** Low-poly woontorens achter het plein — zichtbaar bij noordelijke winkels. */
+  private buildBackdropTowers() {
+    const spots: [number, number, number, number, 1 | -1][] = [
+      [-11, -16.5, 7, 0, 1],
+      [11, -16.5, 6, 0, -1],
+      [-16.5, 8, 6, Math.PI / 2, 1],
+      [16.5, -6, 7, -Math.PI / 2, -1],
+    ]
+    for (const [tx, tz, floors, rot, balSide] of spots) {
+      const mats: THREE.MeshStandardMaterial[] = []
+      const tower = buildModernTower({
+        width: 4.8,
+        depth: 5.2,
+        floors,
+        windowCols: 6,
+        balconies: true,
+        balconySide: balSide,
+        seed: tx * 13 + tz * 7,
+        windowMatsOut: mats,
+      })
+      tower.position.set(tx, 0, tz)
+      tower.rotation.y = rot
+      this.scene.add(tower)
+      for (const wm of mats) {
+        this.flickerMats.push({ mat: wm, base: wm.emissiveIntensity, t: Math.random() * 4 })
+      }
+    }
   }
 
   private addPuddleDecal(x: number, z: number, radius: number, color: number, intensity = 0.22) {

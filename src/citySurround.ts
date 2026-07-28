@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { attachRooftopDetails } from './rooftops.js'
+import { buildModernTower, towerColliderMeshes } from './modernBuilding.js'
 
 // ── Palette (purple-grey cyber-industrial) ────────────────────────────────
 export const PLAZA_HALF = 20
@@ -270,7 +270,6 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
       const segW = len / Math.ceil(len / 5.5)
       for (let u = a0 + segW / 2; u < a1; u += segW) {
         const w = Math.min(segW * 0.92, a1 - a0)
-        const height = 6 + seededRand(side.charCodeAt(0) * 17 + segIdx) * 8
         const isFullBlock = seededRand(segIdx + 99) > 0.72
         const { x, z, rotY } = sideTransform(side, u, depthCenter)
 
@@ -278,80 +277,27 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
         block.position.set(x, 0, z)
         block.rotation.y = rotY
 
+        const floors = 5 + Math.floor(seededRand(segIdx + 7) * 2)
+        const towerW = Math.max(3.6, Math.min(w, 5.8))
+        const windowMats: THREE.MeshStandardMaterial[] = []
+        const tower = buildModernTower({
+          width: towerW,
+          depth: depthSpan * 0.9,
+          floors,
+          balconies: seededRand(segIdx + 3) > 0.2,
+          balconySide: segIdx % 2 === 0 ? 1 : -1,
+          seed: segIdx * 41 + side.charCodeAt(0),
+          collider: isFullBlock,
+          windowMatsOut: windowMats,
+        })
+        block.add(tower)
+        for (const wm of windowMats) {
+          ctx.flickerMats.push({ mat: wm, base: wm.emissiveIntensity, t: Math.random() * 4 })
+        }
         if (isFullBlock) {
-          const brickColor = BRICK_ACCENT[segIdx % BRICK_ACCENT.length]
-          const bodyMat = m.wallDark.clone()
-          bodyMat.color.set(brickColor)
-          const body = new THREE.Mesh(new THREE.BoxGeometry(w, height, depthSpan), bodyMat)
-          body.position.y = height / 2
-          body.castShadow = true
-          body.receiveShadow = true
-          block.add(body)
-          ctx.colliders?.push(body)
-        } else {
-          const brickColor = BRICK_ACCENT[(segIdx + 1) % BRICK_ACCENT.length]
-          const facadeMat = m.wall.clone()
-          facadeMat.color.set(brickColor)
-          const facade = new THREE.Mesh(new THREE.BoxGeometry(w, height, 0.35), facadeMat)
-          facade.position.set(0, height / 2, -depthSpan / 2 + 0.2)
-          facade.castShadow = true
-          block.add(facade)
-          const capL = new THREE.Mesh(new THREE.BoxGeometry(0.25, height, depthSpan * 0.6), m.wallDark)
-          capL.position.set(-w / 2 + 0.12, height / 2, 0)
-          block.add(capL)
-          const capR = capL.clone()
-          capR.position.x = w / 2 - 0.12
-          block.add(capR)
+          for (const cm of towerColliderMeshes(tower)) ctx.colliders?.push(cm)
         }
 
-        // Brick banding / water stain
-        if (seededRand(segIdx + 50) > 0.4) {
-          const band = new THREE.Mesh(
-            new THREE.BoxGeometry(w * 0.92, 0.12, 0.04),
-            new THREE.MeshStandardMaterial({ color: 0x1a1618, roughness: 0.9, metalness: 0.05 }),
-          )
-          band.position.set(0, height * 0.28, -depthSpan / 2 + 0.24)
-          block.add(band)
-        }
-
-        // Window strip (instanced later per segment — here 2–4 emissive planes)
-        const winCount = 2 + Math.floor(seededRand(segIdx) * 3)
-        const winColors = [WINDOW_WARM, WINDOW_COOL, WINDOW_PINK]
-        for (let wi = 0; wi < winCount; wi++) {
-          const winMat = m.window.clone()
-          winMat.color.set(winColors[wi % 3])
-          winMat.emissive.set(winColors[wi % 3])
-          winMat.emissiveIntensity = 0.4 + seededRand(segIdx + wi) * 0.5
-          const win = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.55), winMat)
-          const wx = (wi - (winCount - 1) / 2) * (w / (winCount + 1))
-          win.position.set(wx, height * (0.45 + (wi % 2) * 0.22), -depthSpan / 2 + 0.22)
-          block.add(win)
-          ctx.flickerMats.push({ mat: winMat, base: winMat.emissiveIntensity, t: Math.random() * 4 })
-        }
-
-        attachFacadeDetails(ctx, { u, width: w, height, depth: depthSpan, isFullBlock, side }, block, segIdx * 13)
-
-        // Purpose sign on every 2nd segment — Agent 2
-        const storeLabels = ['DELI', 'PAWN', 'REPAIR', 'NOODLES', 'PHARM', 'LOCKS', 'DATA', 'PRINT']
-        const storeColors = [NEON_ORANGE, NEON_YELLOW, NEON_CYAN, NEON_PINK, 0x44ff88, NEON_CYAN, 0x9a86ff, NEON_YELLOW]
-        if (segIdx % 2 === 0) {
-          const li = segIdx % storeLabels.length
-          const tex = makeStoreSignTexture(storeLabels[li], storeColors[li], 'OPEN 24H')
-          const signMat = new THREE.MeshStandardMaterial({
-            map: tex,
-            emissive: storeColors[li],
-            emissiveMap: tex,
-            emissiveIntensity: 0.75,
-            roughness: 0.4,
-            metalness: 0.2,
-          })
-          const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w * 0.75, 2.8), 0.55), signMat)
-          sign.position.set(0, height * 0.78, -depthSpan / 2 + 0.26)
-          block.add(sign)
-          ctx.flickerMats.push({ mat: signMat, base: 0.75, t: Math.random() * 4 })
-        }
-
-        attachRooftopDetails(block, w, height, depthSpan, segIdx * 7 + side.charCodeAt(0))
         root.add(block)
         segIdx++
       }
