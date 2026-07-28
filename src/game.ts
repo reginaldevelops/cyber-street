@@ -39,6 +39,9 @@ const ENEMY_HP = 3
 const ENEMY_SPEED = 2.6
 const ENEMY_RESPAWN = 2.6
 
+/** Combat off while we focus on world exploration — re-enable later. */
+const COMBAT_ENABLED = false
+
 const NEON_CYAN = 0x00f6ff
 const NEON_PINK = 0xff2d95
 const NEON_YELLOW = 0xffe14d
@@ -149,6 +152,10 @@ export class Game {
     this.killsEl = document.getElementById('kills')
     this.crosshairEl = document.getElementById('crosshair')
     this.conceptPanelEl = document.getElementById('concept-panel')
+    if (!COMBAT_ENABLED) {
+      this.crosshairEl?.classList.add('hidden')
+      document.getElementById('scoreboard')?.classList.add('hidden')
+    }
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -177,7 +184,7 @@ export class Game {
     this.setupMusic()
     this.buildWorld()
     this.buildIsoPlayer()
-    this.buildEnemies()
+    if (COMBAT_ENABLED) this.buildEnemies()
     this.bindEvents()
     window.addEventListener('resize', () => this.onResize())
     this.onResize()
@@ -701,15 +708,15 @@ export class Game {
     })
     canvas.addEventListener('mousedown', (e) => {
       beginPlay()
-      if (e.button === 0) this.firing = true
+      if (COMBAT_ENABLED && e.button === 0) this.firing = true
     })
     document.addEventListener('mouseup', (e) => {
-      if (e.button === 0) this.firing = false
+      if (COMBAT_ENABLED && e.button === 0) this.firing = false
     })
   }
 
   private updateCrosshair() {
-    if (!this.crosshairEl) return
+    if (!COMBAT_ENABLED || !this.crosshairEl) return
     this.crosshairEl.style.left = `${this.mouseScreen.x}px`
     this.crosshairEl.style.top = `${this.mouseScreen.y}px`
     this.crosshairEl.style.margin = '0'
@@ -1106,8 +1113,10 @@ export class Game {
     const elapsed = this.clock.elapsedTime
     this.updatePlayer(dt)
     this.updateCamera(dt)
-    this.updateShooting(dt)
-    this.updateEnemies(dt)
+    if (COMBAT_ENABLED) {
+      this.updateShooting(dt)
+      this.updateEnemies(dt)
+    }
     this.updateAtmosphere(dt, elapsed)
     this.composer.render()
     requestAnimationFrame(this.animate)
