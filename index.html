@@ -140,11 +140,10 @@
       #hint b {
         color: #ff2d95;
       }
-      #hint.hidden {
-        display: none;
-      }
       #crosshair.hidden,
-      #scoreboard.hidden {
+      #scoreboard.hidden,
+      #concept-panel.hidden,
+      #hint.hidden {
         display: none;
       }
       #concept-panel {
@@ -187,6 +186,96 @@
       #concept-panel b {
         color: #ff2d95;
       }
+      #start-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(8, 4, 18, 0.72) 0%,
+          rgba(2, 2, 8, 0.94) 70%
+        );
+        backdrop-filter: blur(3px);
+        pointer-events: auto;
+      }
+      #start-screen.hidden {
+        display: none;
+      }
+      #start-screen::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, 0) 0px,
+          rgba(0, 0, 0, 0) 3px,
+          rgba(0, 255, 255, 0.03) 3px,
+          rgba(0, 255, 255, 0.03) 4px
+        );
+        pointer-events: none;
+      }
+      #start-panel {
+        position: relative;
+        z-index: 1;
+        text-align: center;
+        padding: 48px 56px 42px;
+        border: 1px solid rgba(0, 255, 255, 0.35);
+        border-top: 3px solid rgba(255, 45, 149, 0.9);
+        background: rgba(0, 0, 0, 0.62);
+        box-shadow:
+          0 0 40px rgba(0, 246, 255, 0.12),
+          inset 0 0 60px rgba(255, 45, 149, 0.04);
+        min-width: 320px;
+      }
+      #start-title {
+        font-size: 42px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        color: #00f6ff;
+        text-shadow: 0 0 24px rgba(0, 246, 255, 0.75);
+        margin-bottom: 8px;
+      }
+      #start-subtitle {
+        font-size: 13px;
+        letter-spacing: 0.28em;
+        color: #ff2d95;
+        text-transform: uppercase;
+        margin-bottom: 36px;
+      }
+      #start-audio-hint {
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        color: #8899aa;
+        margin-bottom: 18px;
+        min-height: 16px;
+      }
+      #start-audio-hint.hidden {
+        display: none;
+      }
+      #play-btn {
+        font-family: inherit;
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: #050508;
+        background: linear-gradient(135deg, #00f6ff 0%, #ff2d95 100%);
+        border: none;
+        padding: 14px 48px;
+        cursor: pointer;
+        box-shadow: 0 0 22px rgba(0, 246, 255, 0.45);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      #play-btn:hover {
+        transform: scale(1.04);
+        box-shadow: 0 0 32px rgba(255, 45, 149, 0.55);
+      }
+      #play-btn:active {
+        transform: scale(0.98);
+      }
     </style>
   </head>
   <body>
@@ -197,10 +286,18 @@
         Neutralized
         <span id="kills">00</span>
       </div>
-      <div id="concept-panel"></div>
-      <div id="hint">
-        Klik om te spelen · <b>WASD</b> lopen · <b>Shift</b> sprinten ·
+      <div id="concept-panel" class="hidden"></div>
+      <div id="hint" class="hidden">
+        <b>WASD</b> lopen · <b>Shift</b> sprinten ·
         <b>Muis</b> kijken · <b>1–4</b> grate-variant
+      </div>
+    </div>
+    <div id="start-screen">
+      <div id="start-panel">
+        <div id="start-title">CYBER STREET</div>
+        <div id="start-subtitle">Neon Alley</div>
+        <div id="start-audio-hint">Klik ergens voor muziek</div>
+        <button id="play-btn" type="button">Play</button>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

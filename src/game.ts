@@ -144,7 +144,10 @@ export class Game {
   private glowTexture!: THREE.CanvasTexture
   private conceptPanelEl: HTMLElement | null
   private bgMusic = new Audio('/audio/neon-alley.mp3')
-  private musicStarted = false
+  private menuMusicPlaying = false
+  private playing = false
+  private startScreenEl: HTMLElement | null
+  private audioHintEl: HTMLElement | null
 
   constructor(container: HTMLElement, hintEl: HTMLElement) {
     this.container = container
@@ -152,6 +155,8 @@ export class Game {
     this.killsEl = document.getElementById('kills')
     this.crosshairEl = document.getElementById('crosshair')
     this.conceptPanelEl = document.getElementById('concept-panel')
+    this.startScreenEl = document.getElementById('start-screen')
+    this.audioHintEl = document.getElementById('start-audio-hint')
     if (!COMBAT_ENABLED) {
       this.crosshairEl?.classList.add('hidden')
       document.getElementById('scoreboard')?.classList.add('hidden')
@@ -182,6 +187,7 @@ export class Game {
 
     this.setupPost()
     this.setupMusic()
+    this.setupStartScreen()
     this.buildWorld()
     this.buildIsoPlayer()
     if (COMBAT_ENABLED) this.buildEnemies()
@@ -204,12 +210,46 @@ export class Game {
     this.bgMusic.preload = 'auto'
   }
 
-  private startMusic() {
-    if (this.musicStarted) return
-    this.musicStarted = true
-    this.bgMusic.play().catch(() => {
-      this.musicStarted = false
+  private setupStartScreen() {
+    const playBtn = document.getElementById('play-btn')
+    if (!playBtn || !this.startScreenEl) return
+
+    const unlockMenuMusic = () => {
+      if (this.menuMusicPlaying || this.playing) return
+      this.bgMusic.play().then(() => {
+        this.menuMusicPlaying = true
+        this.audioHintEl?.classList.add('hidden')
+      }).catch(() => {
+        this.audioHintEl?.classList.remove('hidden')
+      })
+    }
+
+    this.startScreenEl.addEventListener('click', unlockMenuMusic)
+    playBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      this.enterGame()
     })
+
+    // Browsers blokkeren autoplay — hint tonen tot eerste klik
+    this.bgMusic.play().then(() => {
+      this.menuMusicPlaying = true
+      this.audioHintEl?.classList.add('hidden')
+    }).catch(() => {
+      this.audioHintEl?.classList.remove('hidden')
+    })
+  }
+
+  private enterGame() {
+    if (this.playing) return
+    this.playing = true
+
+    this.bgMusic.pause()
+    this.bgMusic.currentTime = 0
+    this.menuMusicPlaying = false
+
+    this.startScreenEl?.classList.add('hidden')
+    this.hintEl.classList.remove('hidden')
+    this.conceptPanelEl?.classList.remove('hidden')
   }
 
   private setupPost() {
@@ -685,33 +725,33 @@ export class Game {
   // ── Input ───────────────────────────────────────────────────────────────
 
   private bindEvents() {
-    const beginPlay = () => {
-      this.startMusic()
-      this.hintEl.classList.add('hidden')
-    }
-
     window.addEventListener('keydown', (e) => {
-      beginPlay()
+      if (!this.playing) return
       if (e.code.startsWith('Digit')) {
         const concept = conceptByKey(e.code.replace('Digit', ''))
         if (concept) this.switchGroundConcept(concept)
       }
       this.setKey(e.code, true)
     })
-    window.addEventListener('keyup', (e) => this.setKey(e.code, false))
+    window.addEventListener('keyup', (e) => {
+      if (!this.playing) return
+      this.setKey(e.code, false)
+    })
 
     const canvas = this.renderer.domElement
     canvas.addEventListener('mousemove', (e) => {
+      if (!this.playing) return
       this.mouseScreen.x = e.clientX
       this.mouseScreen.y = e.clientY
       this.updateCrosshair()
     })
     canvas.addEventListener('mousedown', (e) => {
-      beginPlay()
+      if (!this.playing) return
       if (COMBAT_ENABLED && e.button === 0) this.firing = true
     })
     document.addEventListener('mouseup', (e) => {
-      if (COMBAT_ENABLED && e.button === 0) this.firing = false
+      if (!this.playing || !COMBAT_ENABLED) return
+      if (e.button === 0) this.firing = false
     })
   }
 
@@ -757,6 +797,11 @@ export class Game {
   // ── Beweging & camera ───────────────────────────────────────────────────
 
   private updatePlayer(dt: number) {
+    if (!this.playing) {
+      this.velocity.set(0, 0, 0)
+      return
+    }
+
     this.updateAimFromMouse()
 
     const wish = new THREE.Vector3()
