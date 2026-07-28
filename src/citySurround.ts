@@ -387,12 +387,7 @@ export function buildVerticalNeonSigns(ctx: CitySurroundContext): THREE.Group {
 
   const signSpots: [Side, number, number, number][] = [
     ['north', -14, 0, NEON_PINK],
-    ['north', 6, 1, NEON_CYAN],
-    ['south', -8, 2, NEON_CYAN],
-    ['south', 14, 0, NEON_PINK],
-    ['west', -4, 1, NEON_ORANGE],
-    ['east', 10, 2, NEON_YELLOW],
-    ['east', -12, 0, NEON_PINK],
+    ['south', 14, 0, NEON_CYAN],
   ]
 
   for (const [side, u, variant, color] of signSpots) {
@@ -601,9 +596,7 @@ const _dummy = new THREE.Object3D()
 
 /** Master builder — all surround systems + stats for budget tracking. */
 export function buildCitySurround(ctx: CitySurroundContext): CitySurroundStats {
-  buildStreetExtensions(ctx)
   buildPerimeterCity(ctx)
-  buildElevatedWalkways(ctx)
   buildVerticalNeonSigns(ctx)
   buildSkylineBackdrop(ctx)
 

@@ -4,7 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
-import { populateSceneAmbience, updateAmbience, buildDroidNPC, buildHoloPanel, makeGreenGridTexture, type AmbienceState, type DroidNPC } from './ambience'
+import { populateSceneAmbience, updateAmbience, makeGreenGridTexture, type AmbienceState } from './ambience'
 import { buildCitySurround } from './citySurround.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
@@ -12,7 +12,7 @@ const SPRINT_SPEED = 8.8
 const ACCEL = 14
 const DECEL = 11
 
-const ISO_FRUSTUM = 30 // orthografische zoom — iets wijder voor het plein
+const ISO_FRUSTUM = 34
 const ISO_CAM_OFFSET = new THREE.Vector3(26, 26, 26)
 const ISO_FOLLOW = 9
 const ISO_FORWARD = new THREE.Vector3(-1, 0, -1).normalize()
@@ -27,7 +27,7 @@ const PLAZA_HALF = PLAZA_SIZE / 2
 const PLAYER_LIMIT_X = PLAZA_HALF - 2.5
 const PLAYER_LIMIT_Z = PLAZA_HALF - 2.5
 
-const ENEMY_COUNT = 5
+const ENEMY_COUNT = 3
 const ENEMY_HP = 3
 const ENEMY_SPEED = 2.6
 const ENEMY_RESPAWN = 2.6
@@ -129,8 +129,6 @@ export class Game {
   private holoRing!: THREE.Group
   private ambience!: AmbienceState
   private centralHub!: THREE.Group
-  private shopHolos: { group: THREE.Group; baseY: number; phase: number; fixedYaw: number }[] = []
-  private merchantDroids: DroidNPC[] = []
 
   constructor(container: HTMLElement, hintEl: HTMLElement) {
     this.container = container
@@ -190,7 +188,7 @@ export class Game {
 
   private buildWorld() {
     this.scene.background = new THREE.Color(0x141024)
-    this.scene.fog = new THREE.FogExp2(0x221636, 0.011)
+    this.scene.fog = new THREE.FogExp2(0x221636, 0.016)
 
     this.scene.add(new THREE.AmbientLight(0x665577, 0.45))
 
@@ -215,13 +213,9 @@ export class Game {
 
     this.buildPlazaFloor()
     this.buildCourtyardShops()
-    this.buildElevatedWalkways()
     this.buildMarketStalls()
     this.buildBarDistrict()
     this.buildCentralHub()
-    this.buildDeliveryVehicle()
-    this.buildCourtyardProps()
-    this.buildCourtyardLighting()
 
     buildCitySurround({
       scene: this.scene,
@@ -233,37 +227,6 @@ export class Game {
     this.scene.add(this.rain)
 
     this.ambience = populateSceneAmbience(this.scene, this.flickerMats)
-    this.ambience.droids.push(...this.merchantDroids)
-  }
-
-  private makeGratingTexture(): THREE.CanvasTexture {
-    const c = document.createElement('canvas')
-    c.width = c.height = 128
-    const ctx = c.getContext('2d')!
-    ctx.fillStyle = '#1a1822'
-    ctx.fillRect(0, 0, 128, 128)
-    ctx.strokeStyle = '#3a3848'
-    ctx.lineWidth = 2
-    for (let i = 0; i <= 128; i += 16) {
-      ctx.beginPath()
-      ctx.moveTo(i, 0)
-      ctx.lineTo(i, 128)
-      ctx.stroke()
-      ctx.beginPath()
-      ctx.moveTo(0, i)
-      ctx.lineTo(128, i)
-      ctx.stroke()
-    }
-    ctx.fillStyle = '#0e0c14'
-    for (let gx = 8; gx < 128; gx += 16) {
-      for (let gy = 8; gy < 128; gy += 16) {
-        ctx.fillRect(gx - 3, gy - 3, 6, 6)
-      }
-    }
-    const tex = new THREE.CanvasTexture(c)
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping
-    tex.repeat.set(4, 4)
-    return tex
   }
 
   private addPuddleDecal(x: number, z: number, radius: number, color: number, intensity = 0.22) {
@@ -286,12 +249,12 @@ export class Game {
     this.flickerMats.push({ mat, base: intensity, t: Math.random() * 3 })
   }
 
-  /** Wet asphalt base + grating traffic lanes + emissive puddle decals. Combat lanes kept open on N/S + E/W axes. */
+  /** Nat natte plaza — rustig, één accent (cyan rand). */
   private buildPlazaFloor() {
     const asphaltMat = new THREE.MeshStandardMaterial({
       color: 0x12101a,
-      roughness: 0.18,
-      metalness: 0.72,
+      roughness: 0.2,
+      metalness: 0.65,
     })
     const plaza = new THREE.Mesh(new THREE.PlaneGeometry(PLAZA_SIZE, PLAZA_SIZE), asphaltMat)
     plaza.rotation.x = -Math.PI / 2
@@ -302,222 +265,28 @@ export class Game {
     const trimMat = new THREE.MeshStandardMaterial({
       color: NEON_CYAN,
       emissive: NEON_CYAN,
-      emissiveIntensity: 1.2,
+      emissiveIntensity: 0.7,
       roughness: 0.4,
       metalness: 0.35,
     })
-    const borderW = 0.35
-    const borders: [number, number, number, number][] = [
-      [0, 0.02, -PLAZA_HALF + borderW / 2, PLAZA_SIZE],
-      [0, 0.02, PLAZA_HALF - borderW / 2, PLAZA_SIZE],
-      [-PLAZA_HALF + borderW / 2, 0.02, 0, PLAZA_SIZE],
-      [PLAZA_HALF - borderW / 2, 0.02, 0, PLAZA_SIZE],
-    ]
-    for (const [bx, by, bz, len] of borders) {
+    const borderW = 0.25
+    for (const [bx, bz] of [
+      [0, -PLAZA_HALF + borderW / 2],
+      [0, PLAZA_HALF - borderW / 2],
+      [-PLAZA_HALF + borderW / 2, 0],
+      [PLAZA_HALF - borderW / 2, 0],
+    ] as [number, number][]) {
       const edge = new THREE.Mesh(
         new THREE.PlaneGeometry(bx === 0 ? PLAZA_SIZE : borderW, bz === 0 ? PLAZA_SIZE : borderW),
         trimMat,
       )
       edge.rotation.x = -Math.PI / 2
-      edge.position.set(bx, by, bz)
+      edge.position.set(bx, 0.02, bz)
       this.scene.add(edge)
-      this.flickerMats.push({ mat: trimMat, base: 1.2, t: Math.random() * 4 })
     }
 
-    // Quadrant tile insets — dark polished panels between combat lanes
-    const tileMat = new THREE.MeshStandardMaterial({
-      color: 0x1e1a28,
-      roughness: 0.22,
-      metalness: 0.55,
-    })
-    const quadrants: [number, number][] = [
-      [-11, -11], [11, -11], [-11, 11], [11, 11],
-    ]
-    for (const [qx, qz] of quadrants) {
-      const tile = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), tileMat)
-      tile.rotation.x = -Math.PI / 2
-      tile.position.set(qx, 0.012, qz)
-      this.scene.add(tile)
-    }
-
-    // Metal grating on main traffic corridors (N/S + E/W, 6u wide each)
-    const gratingTex = this.makeGratingTexture()
-    const grateMat = new THREE.MeshStandardMaterial({
-      color: 0x2a2834,
-      map: gratingTex,
-      roughness: 0.45,
-      metalness: 0.88,
-    })
-    const laneW = 6
-    const laneLen = PLAZA_SIZE - 2
-    const nsGrate = new THREE.Mesh(new THREE.PlaneGeometry(laneW, laneLen), grateMat)
-    nsGrate.rotation.x = -Math.PI / 2
-    nsGrate.position.set(0, 0.018, 0)
-    this.scene.add(nsGrate)
-    const ewGrate = new THREE.Mesh(new THREE.PlaneGeometry(laneLen, laneW), grateMat)
-    ewGrate.rotation.x = -Math.PI / 2
-    ewGrate.position.set(0, 0.018, 0)
-    this.scene.add(ewGrate)
-
-    // Lane divider neon strips
-    const dividerMat = new THREE.MeshStandardMaterial({
-      color: NEON_PINK,
-      emissive: NEON_PINK,
-      emissiveIntensity: 0.9,
-      roughness: 0.35,
-      metalness: 0.4,
-    })
-    for (const side of [-1, 1]) {
-      const divNS = new THREE.Mesh(new THREE.PlaneGeometry(0.12, laneLen - 8), dividerMat)
-      divNS.rotation.x = -Math.PI / 2
-      divNS.position.set(side * (laneW / 2 + 0.06), 0.022, 0)
-      this.scene.add(divNS)
-      const divEW = new THREE.Mesh(new THREE.PlaneGeometry(laneLen - 8, 0.12), dividerMat)
-      divEW.rotation.x = -Math.PI / 2
-      divEW.position.set(0, 0.022, side * (laneW / 2 + 0.06))
-      this.scene.add(divEW)
-    }
-    this.flickerMats.push({ mat: dividerMat, base: 0.9, t: Math.random() * 2 })
-
-    // Wet puddle reflections — pink/cyan bleed from neon signage
-    const puddles: [number, number, number, number][] = [
-      [-8, -5, 2.8, NEON_CYAN],
-      [9, 3, 2.2, NEON_PINK],
-      [-4, 10, 1.9, NEON_PINK],
-      [7, -9, 2.5, NEON_CYAN],
-      [-13, 2, 1.6, NEON_CYAN],
-      [2, -12, 2.0, NEON_PINK],
-      [-10, -14, 1.8, NEON_CYAN],
-      [14, -3, 1.7, NEON_PINK],
-    ]
-    for (const [px, pz, pr, col] of puddles) {
-      this.addPuddleDecal(px, pz, pr, col, 0.18 + Math.random() * 0.08)
-    }
-  }
-
-  private addShippingContainer(
-    x: number, z: number, rotY: number,
-    color: number, w = 2.4, h = 2.6, d = 6,
-    collider = true,
-  ): THREE.Group {
-    const group = new THREE.Group()
-    group.position.set(x, 0, z)
-    group.rotation.y = rotY
-
-    const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.65 })
-    const ribMat = new THREE.MeshStandardMaterial({ color: 0x3a3844, roughness: 0.4, metalness: 0.85 })
-
-    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bodyMat)
-    body.position.y = h / 2
-    body.castShadow = true
-    body.receiveShadow = true
-    group.add(body)
-    if (collider) this.worldColliders.push(body)
-
-    for (let ri = -1; ri <= 1; ri += 2) {
-      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.06, h * 0.92, d * 0.96), ribMat)
-      rib.position.set(ri * (w / 2 - 0.04), h / 2, 0)
-      group.add(rib)
-    }
-
-    const doorLine = new THREE.Mesh(new THREE.BoxGeometry(0.04, h * 0.85, 0.04), ribMat)
-    doorLine.position.set(0, h / 2, d / 2 + 0.02)
-    group.add(doorLine)
-
-    this.scene.add(group)
-    return group
-  }
-
-  /** Elevated metal walkway ring (y≈2.5) + 4 bridges to shop facades. */
-  private buildElevatedWalkways() {
-    const deckH = 0.18
-    const walkY = 2.5
-    const ringR = 14.5
-    const deckW = 2.2
-    const metalMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.38, metalness: 0.82 })
-    const railMat = new THREE.MeshStandardMaterial({
-      color: NEON_CYAN,
-      emissive: NEON_CYAN,
-      emissiveIntensity: 0.55,
-      roughness: 0.35,
-      metalness: 0.6,
-    })
-    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x2a2830, roughness: 0.45, metalness: 0.75 })
-
-    // Circular ring segments
-    const segCount = 24
-    for (let s = 0; s < segCount; s++) {
-      const a0 = (s / segCount) * Math.PI * 2
-      const a1 = ((s + 1) / segCount) * Math.PI * 2
-      const midA = (a0 + a1) / 2
-      const segLen = ringR * (a1 - a0) * 1.02
-      const deck = new THREE.Mesh(new THREE.BoxGeometry(deckW, deckH, segLen), metalMat)
-      deck.position.set(Math.cos(midA) * ringR, walkY, Math.sin(midA) * ringR)
-      deck.rotation.y = -midA + Math.PI / 2
-      deck.castShadow = true
-      deck.receiveShadow = true
-      this.scene.add(deck)
-      // Geen aim-collider — iso-camera zou anders door bruggen schieten
-
-      const railL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.85, segLen), railMat)
-      railL.position.set(Math.cos(midA) * (ringR + deckW / 2), walkY + 0.5, Math.sin(midA) * (ringR + deckW / 2))
-      railL.rotation.y = deck.rotation.y
-      this.scene.add(railL)
-
-      const railR = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.85, segLen), railMat)
-      railR.position.set(Math.cos(midA) * (ringR - deckW / 2), walkY + 0.5, Math.sin(midA) * (ringR - deckW / 2))
-      railR.rotation.y = deck.rotation.y
-      this.scene.add(railR)
-    }
-    this.flickerMats.push({ mat: railMat, base: 0.55, t: Math.random() * 3 })
-
-    // Support pillars on ring
-    for (let p = 0; p < 8; p++) {
-      const ang = (p / 8) * Math.PI * 2
-      const px = Math.cos(ang) * ringR
-      const pz = Math.sin(ang) * ringR
-      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.35, walkY, 0.35), pillarMat)
-      pillar.position.set(px, walkY / 2, pz)
-      pillar.castShadow = true
-      this.scene.add(pillar)
-    }
-
-    const shopReach = PLAZA_HALF - 1.5
-    const bridgeSpecs: [number, number, number, number][] = [
-      [0, -1, 0, ringR],
-      [0, 1, 0, ringR],
-      [-1, 0, ringR, 0],
-      [1, 0, ringR, 0],
-    ]
-    for (const [dx, dz, sx, sz] of bridgeSpecs) {
-      const len = shopReach - ringR + 0.4
-      const bridge = new THREE.Mesh(new THREE.BoxGeometry(
-        dx !== 0 ? len : deckW,
-        deckH,
-        dz !== 0 ? len : deckW,
-      ), metalMat)
-      const midX = dx !== 0 ? sx + dx * (ringR + len / 2) : sx
-      const midZ = dz !== 0 ? sz + dz * (ringR + len / 2) : sz
-      bridge.position.set(midX, walkY, midZ)
-      bridge.castShadow = true
-      this.scene.add(bridge)
-
-      // Bridge underglow strip
-      const glow = new THREE.Mesh(
-        new THREE.PlaneGeometry(dx !== 0 ? len : deckW, dz !== 0 ? len : deckW),
-        new THREE.MeshStandardMaterial({
-          color: NEON_PINK,
-          emissive: NEON_PINK,
-          emissiveIntensity: 0.35,
-          transparent: true,
-          opacity: 0.6,
-          side: THREE.DoubleSide,
-        }),
-      )
-      glow.rotation.x = Math.PI / 2
-      glow.position.set(midX, walkY - 0.12, midZ)
-      this.scene.add(glow)
-    }
+    this.addPuddleDecal(0, 0, 3.5, NEON_CYAN, 0.12)
+    this.addPuddleDecal(-8, 6, 2.0, NEON_PINK, 0.1)
   }
 
   private makeSignTexture(text: string, hexColor: number): THREE.CanvasTexture {
@@ -654,162 +423,48 @@ export class Game {
     door.position.set(0, 1.1, cfg.d / 2 + 0.04)
     group.add(door)
 
-    if (kind === 'weapons') {
-      for (let r = 0; r < 3; r++) {
-        const rack = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.4, 0.5), metalMat)
-        rack.position.set(-1.8 + r * 1.8, 1.3, cfg.d / 2 + 0.15)
-        group.add(rack)
-      }
-    } else if (kind === 'armor') {
-      const mannequin = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 0.9, 4, 8), trimMat)
-      mannequin.position.set(1.5, 1.4, cfg.d / 2 + 0.2)
-      group.add(mannequin)
-    } else if (kind === 'bank') {
-      const vault = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.1, 16), metalMat)
-      vault.rotation.x = Math.PI / 2
-      vault.position.set(0, 1.8, -cfg.d / 2 + 0.2)
-      group.add(vault)
-    } else if (kind === 'tech') {
-      const screen = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.8, 0.5),
-        new THREE.MeshBasicMaterial({ color: 0x6644ff }),
-      )
-      screen.position.set(0, 1.6, -cfg.d / 2 + 0.22)
-      group.add(screen)
-    }
-
-    const merchant = buildDroidNPC(0, 0, 'idle', true)
-    merchant.root.position.set(0, 0, cfg.d / 2 - 0.85)
-    merchant.root.rotation.y = Math.PI
-    group.add(merchant.root)
-    this.merchantDroids.push(merchant)
-
-    const holo = buildHoloPanel(0, 0, 0)
-    holo.group.position.set(0.55, 1.75, cfg.d / 2 + 0.35)
-    holo.fixedYaw = 0
-    group.add(holo.group)
-    this.shopHolos.push({ group: holo.group, baseY: 1.75, phase: holo.phase, fixedYaw: 0 })
-    this.flickerMats.push({ mat: holo.borderMat, base: 2.2, t: Math.random() * 3 })
-
     this.scene.add(group)
   }
 
   private buildCourtyardShops() {
     const inset = PLAZA_HALF - 1.5
-    // Noordgevel — wapens, armor, tech
-    this.addShop('weapons', -10, -inset, 0)
-    this.addShop('armor', 0, -inset, 0)
-    this.addShop('tech', 10, -inset, 0)
-    // Zuidgevel — inn, general, bank
-    this.addShop('inn', -10, inset, Math.PI)
+    this.addShop('weapons', -9, -inset, 0)
+    this.addShop('armor', 9, -inset, 0)
     this.addShop('general', 0, inset, Math.PI)
-    this.addShop('bank', 10, inset, Math.PI)
-    // Westgevel — bar via buildBarDistrict()
-    // Oostgevel — clinic
-    this.addShop('clinic', inset, 6, -Math.PI / 2)
-
-    // Hoekgebouwen — vult de hoeken op
-    this.addCornerBlock(-inset, -inset, 0)
-    this.addCornerBlock(inset, -inset, Math.PI / 2)
-    this.addCornerBlock(-inset, inset, -Math.PI / 2)
-    this.addCornerBlock(inset, inset, Math.PI)
   }
 
-  private addCornerBlock(x: number, z: number, rot: number) {
-    const group = new THREE.Group()
-    group.position.set(x, 0, z)
-    group.rotation.y = rot
-    const mat = new THREE.MeshStandardMaterial({ color: 0x221e2c, roughness: 0.75, metalness: 0.15 })
-    const block = new THREE.Mesh(new THREE.BoxGeometry(5, 6.5, 5), mat)
-    block.position.y = 3.25
-    block.castShadow = true
-    group.add(block)
-    this.worldColliders.push(block)
-    this.scene.add(group)
-  }
-
-  /** Container-based market stalls flanking combat lanes — labels FOOD/LOOT/DATA etc. */
+  /** Drie marktkramen in het midden — één cyan accent. */
   private buildMarketStalls() {
-    const stallColors = [NEON_YELLOW, NEON_PINK, NEON_CYAN, NEON_ORANGE, 0x9a86ff, NEON_YELLOW]
-    const labels = ['FOOD', 'LOOT', 'DATA', 'PARTS', 'GEAR', 'DRINKS']
-    const containerColors = [0x8a3030, 0x2a4858, 0x3a3848, 0x5a4030, 0x284858, 0x483848]
-    // Offset from lane center — keeps N/S + E/W corridors open for combat
+    const labels = ['FOOD', 'LOOT', 'GEAR']
     const spots: [number, number, number][] = [
-      [-9, -8, 0.15], [9, -8, -0.1], [-9, 8, 0.2], [9, 8, -0.15],
-      [-8, 0, Math.PI / 2], [8, 0, -Math.PI / 2],
+      [-5, 2, 0.2], [5, 2, -0.2], [0, -5, 0],
     ]
+    const contColor = 0x2a4858
 
     spots.forEach(([sx, sz, face], i) => {
       const stall = new THREE.Group()
       stall.position.set(sx, 0, sz)
       stall.rotation.y = face
 
-      const color = stallColors[i % stallColors.length]
-      const contColor = containerColors[i % containerColors.length]
-
-      // Shipping container body (scaled stall)
       const contW = 2.2
       const contH = 2.4
-      const contD = 3.6
-      const bodyMat = new THREE.MeshStandardMaterial({ color: contColor, roughness: 0.52, metalness: 0.68 })
-      const body = new THREE.Mesh(new THREE.BoxGeometry(contW, contH, contD), bodyMat)
+      const contD = 3.2
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(contW, contH, contD),
+        new THREE.MeshStandardMaterial({ color: contColor, roughness: 0.52, metalness: 0.68 }),
+      )
       body.position.y = contH / 2
       body.castShadow = true
       stall.add(body)
       this.worldColliders.push(body)
 
-      // Open front counter cut-in glow
-      const counterGlow = new THREE.Mesh(
-        new THREE.BoxGeometry(contW * 0.7, 0.08, 0.6),
-        new THREE.MeshStandardMaterial({
-          color: NEON_CYAN,
-          emissive: NEON_CYAN,
-          emissiveIntensity: 0.5,
-        }),
-      )
-      counterGlow.position.set(0, 0.95, contD / 2 + 0.2)
-      stall.add(counterGlow)
-
-      // Slanted neon awning
-      const awningMat = new THREE.MeshStandardMaterial({
-        color,
-        emissive: color,
-        emissiveIntensity: 0.55,
-        roughness: 0.5,
-        metalness: 0.15,
-        side: THREE.DoubleSide,
-      })
-      const awning = new THREE.Mesh(new THREE.BoxGeometry(contW + 0.6, 0.05, 1.6), awningMat)
-      awning.position.set(0, contH + 0.35, contD / 2 + 0.35)
-      awning.rotation.x = 0.22
-      stall.add(awning)
-      this.flickerMats.push({ mat: awningMat, base: 0.55, t: Math.random() * 3 })
-
-      const signTex = this.makeSignTexture(labels[i], color)
+      const signTex = this.makeSignTexture(labels[i], NEON_CYAN)
       const signMat = new THREE.MeshStandardMaterial({
-        map: signTex,
-        emissive: color,
-        emissiveIntensity: 0.85,
-        emissiveMap: signTex,
+        map: signTex, emissive: NEON_CYAN, emissiveMap: signTex, emissiveIntensity: 0.65,
       })
-      const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.42), signMat)
-      sign.position.set(0, contH + 0.05, contD / 2 + 0.08)
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.38), signMat)
+      sign.position.set(0, contH + 0.1, contD / 2 + 0.06)
       stall.add(sign)
-      this.flickerMats.push({ mat: signMat, base: 0.85, t: Math.random() * 4 })
-
-      // Crate props on counter
-      const crateMat = new THREE.MeshStandardMaterial({ color: 0x3a3028, roughness: 0.82, metalness: 0.08 })
-      for (let c = 0; c < 2; c++) {
-        const crate = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), crateMat)
-        crate.position.set(-0.5 + c * 1.0, 1.05, contD / 2 + 0.35)
-        crate.rotation.y = c * 0.4
-        stall.add(crate)
-      }
-
-      // Stall point light
-      const stallLight = new THREE.PointLight(color, 8, 10, 1.8)
-      stallLight.position.set(0, contH + 1.2, contD / 2 + 0.5)
-      stall.add(stallLight)
 
       this.scene.add(stall)
     })
@@ -822,35 +477,6 @@ export class Game {
     const steelMat = new THREE.MeshStandardMaterial({ color: 0x2a2436, roughness: 0.65, metalness: 0.35 })
     const containerMat = new THREE.MeshStandardMaterial({ color: 0x1a3844, roughness: 0.55, metalness: 0.72 })
     const metalMat = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.35, metalness: 0.82 })
-    const flickerCyan = (base: number) => {
-      const m = new THREE.MeshStandardMaterial({ color: NEON_CYAN, emissive: NEON_CYAN, emissiveIntensity: base })
-      this.flickerMats.push({ mat: m, base, t: Math.random() * 3 })
-      return m
-    }
-    const flickerPink = (base: number) => {
-      const m = new THREE.MeshStandardMaterial({ color: NEON_PINK, emissive: NEON_PINK, emissiveIntensity: base })
-      this.flickerMats.push({ mat: m, base, t: Math.random() * 4 })
-      return m
-    }
-
-    // Recessed pit
-    const pitFloor = new THREE.Mesh(
-      new THREE.BoxGeometry(11.5, 0.15, 17.5),
-      new THREE.MeshStandardMaterial({ color: 0x141018, roughness: 0.85, metalness: 0.1 }),
-    )
-    pitFloor.position.set(-2.5, -1.08, 0)
-    district.add(pitFloor)
-
-    for (const [px, pz, sx, sz] of [
-      [-4.8, 0, 0.4, 16], [-2.5, -8.8, 11.5, 0.4], [-2.5, 7.8, 11.5, 0.4],
-    ] as [number, number, number, number][]) {
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(sx, 1.15, sz), steelMat)
-      wall.position.set(px, -0.48, pz)
-      district.add(wall)
-      const trim = new THREE.Mesh(new THREE.BoxGeometry(sx + 0.05, 0.06, sz + 0.05), flickerCyan(1.2))
-      trim.position.set(px, 0.12, pz)
-      district.add(trim)
-    }
 
     const lowerContainer = new THREE.Mesh(new THREE.BoxGeometry(9, 2.6, 6), containerMat)
     lowerContainer.position.set(0, 1.3, -1)
@@ -862,221 +488,85 @@ export class Game {
     upperContainer.position.set(0, 3.9, -1)
     district.add(upperContainer)
 
-    // Vertical BAR sign
-    const signBoard = new THREE.Mesh(new THREE.BoxGeometry(0.12, 3.6, 1.4), new THREE.MeshStandardMaterial({ color: 0x0a0812 }))
+    const signBoard = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 3.6, 1.4),
+      new THREE.MeshStandardMaterial({ color: 0x0a0812 }),
+    )
     signBoard.position.set(0, 4.2, 4.2)
     district.add(signBoard)
+
+    const barSignMat = new THREE.MeshStandardMaterial({
+      color: NEON_PINK,
+      emissive: NEON_PINK,
+      emissiveIntensity: 1.1,
+    })
     for (let g = 0; g < 3; g++) {
-      const glyph = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.95), flickerPink(1.4))
+      const glyph = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.95), barSignMat)
       glyph.position.set(0.08, 3.0 + g * 1.1, 4.28)
       district.add(glyph)
     }
-    const signLight = new THREE.PointLight(NEON_PINK, 12, 10, 1.6)
-    signLight.position.set(0.5, 4.2, 4.5)
-    district.add(signLight)
+    this.flickerMats.push({ mat: barSignMat, base: 1.1, t: Math.random() * 3 })
 
-    const awning = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.04, 2.0), flickerPink(0.4))
-    awning.position.set(3.0, 2.55, 2.5)
-    awning.rotation.x = 0.28
-    district.add(awning)
-
-    // Bar counter in pit
     const counter = new THREE.Mesh(new THREE.BoxGeometry(7, 1.1, 1.4), metalMat)
-    counter.position.set(-0.5, -0.45, -2.5)
+    counter.position.set(-0.5, 0.55, -2.5)
     district.add(counter)
-    const counterGlow = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.06, 0.08), flickerPink(2.0))
-    counterGlow.position.set(-0.5, 0.02, -1.85)
-    district.add(counterGlow)
 
-    for (let i = 0; i < 4; i++) {
-      const stool = new THREE.Group()
-      const seat = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.06, 8), steelMat)
-      seat.position.y = 0.35
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.7, 6), steelMat)
-      stool.add(seat, post)
-      stool.position.set(-2.2 + i * 1.4, -0.95, -1.2)
-      district.add(stool)
-    }
-
-    // Terrace tables with emissive tops
-    for (const [tx, tz, col, hero] of [
-      [6, 2.5, NEON_PINK, false], [7.5, 0, NEON_PINK, true], [5.5, 7.5, NEON_CYAN, false], [6, 5, NEON_CYAN, false],
-    ] as [number, number, number, boolean][]) {
-      const topMat = new THREE.MeshStandardMaterial({
-        color: col, emissive: col, emissiveIntensity: hero ? 1.4 : 0.7, roughness: 0.3, metalness: 0.4,
-      })
-      const table = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.06, 12), topMat)
-      table.position.set(tx, 0.55, tz)
-      district.add(table)
-      if (hero) {
-        const tLight = new THREE.PointLight(col, 8, 6, 1.8)
-        tLight.position.set(tx, 1.0, tz)
-        district.add(tLight)
-      }
-      for (let c = 0; c < 3; c++) {
-        const chair = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.5, 0.35), steelMat)
-        const a = (c / 3) * Math.PI * 2
-        chair.position.set(tx + Math.cos(a) * 0.9, 0.25, tz + Math.sin(a) * 0.9)
-        district.add(chair)
-      }
-    }
-
-    // String lights
-    for (let i = 0; i < 9; i++) {
-      const bulb = new THREE.Mesh(
-        new THREE.SphereGeometry(0.07, 8, 8),
-        i % 2 ? flickerPink(2.0) : flickerCyan(1.8),
-      )
-      bulb.position.set(4 + i * 0.65, 3.4 - Math.sin(i * 0.7) * 0.25, 3.5 + Math.cos(i * 0.4) * 0.15)
-      district.add(bulb)
-    }
-
-    // Holo drink menu
-    const holo = buildHoloPanel(0, 0, 0)
-    holo.group.position.set(2.2, 2.0, 3.2)
-    holo.fixedYaw = 0.2
-    district.add(holo.group)
-    this.shopHolos.push({ group: holo.group, baseY: 2.0, phase: holo.phase, fixedYaw: 0.2 })
-
-    // Droid patrons
-    const patronSpots: [number, number, number, number][] = [
-      [-1.8, -0.95, -2.5, Math.PI / 2],
-      [0.2, -0.95, -1.8, -Math.PI / 2],
-      [6.5, 0.45, 0, 0.4],
-      [5.6, 0, -0.4, -0.8],
-    ]
-    for (const [dx, dy, dz, rotY] of patronSpots) {
-      const droid = buildDroidNPC(0, 0, 'idle', true)
-      droid.root.position.set(dx, dy, dz)
-      droid.root.rotation.y = rotY
-      district.add(droid.root)
-      this.merchantDroids.push(droid)
-    }
-
-    const pitLight = new THREE.PointLight(NEON_CYAN, 14, 14, 1.8)
-    pitLight.position.set(-0.5, -0.2, -2.5)
-    district.add(pitLight)
+    const tableMat = new THREE.MeshStandardMaterial({
+      color: NEON_PINK,
+      emissive: NEON_PINK,
+      emissiveIntensity: 0.85,
+      roughness: 0.3,
+      metalness: 0.4,
+    })
+    const table = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.06, 12), tableMat)
+    table.position.set(5, 0.55, 2)
+    district.add(table)
+    this.flickerMats.push({ mat: tableMat, base: 0.85, t: Math.random() * 4 })
 
     this.scene.add(district)
   }
 
-  /** Holographic intersection hub + container monument + 4 ground walkway arms. */
+  /** Rustig middelpunt — fontein + één holo-ring. */
   private buildCentralHub() {
     this.centralHub = new THREE.Group()
     this.holoRing = new THREE.Group()
 
     const metalMat = new THREE.MeshStandardMaterial({ color: 0x3a3848, roughness: 0.42, metalness: 0.78 })
 
-    // 4 ground-level walkway arms (intersection pattern)
-    const armW = 2.8
-    const armLen = 5.5
-    for (let a = 0; a < 4; a++) {
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(armW, 0.08, armLen), metalMat)
-      arm.position.set(0, 0.04, armLen / 2 + 1.2)
-      arm.rotation.y = (a / 4) * Math.PI * 2
-      arm.receiveShadow = true
-      this.centralHub.add(arm)
+    const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.4, 0.2, 12), metalMat)
+    pedestal.position.y = 0.1
+    pedestal.receiveShadow = true
+    this.centralHub.add(pedestal)
 
-      const armGlow = new THREE.Mesh(
-        new THREE.PlaneGeometry(armW * 0.8, armLen),
-        new THREE.MeshStandardMaterial({
-          color: a % 2 ? NEON_CYAN : NEON_PINK,
-          emissive: a % 2 ? NEON_CYAN : NEON_PINK,
-          emissiveIntensity: 0.4,
-          transparent: true,
-          opacity: 0.5,
-        }),
-      )
-      armGlow.rotation.x = -Math.PI / 2
-      armGlow.position.set(0, 0.06, armLen / 2 + 1.2)
-      armGlow.rotation.y = arm.rotation.y
-      this.centralHub.add(armGlow)
-    }
+    const basin = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.4, 1.6, 0.08, 12),
+      new THREE.MeshStandardMaterial({ color: 0x141018, roughness: 0.15, metalness: 0.85 }),
+    )
+    basin.position.y = 0.24
+    this.centralHub.add(basin)
 
-    // Container stack monument (offset slightly for visual interest)
-    const stackColors = [0x8a2838, 0x2a4858, 0x3a3448]
-    for (let si = 0; si < 3; si++) {
-      const cw = 2.0
-      const ch = 2.2
-      const cd = 4.0
-      const cMat = new THREE.MeshStandardMaterial({
-        color: stackColors[si],
-        roughness: 0.5,
-        metalness: 0.7,
-      })
-      const cont = new THREE.Mesh(new THREE.BoxGeometry(cw, ch, cd), cMat)
-      cont.position.set(0.6 + si * 0.15, ch / 2 + si * (ch - 0.3), -0.4 - si * 0.2)
-      cont.rotation.y = si * 0.18
-      cont.castShadow = true
-      this.centralHub.add(cont)
-      if (si < 2) this.worldColliders.push(cont)
-    }
-
-    // Holographic rings at hub apex
     const ringMat = new THREE.MeshBasicMaterial({
       color: NEON_CYAN,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.5,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       depthWrite: false,
     })
-    const ring1 = new THREE.Mesh(new THREE.TorusGeometry(2.4, 0.06, 8, 48), ringMat)
-    ring1.position.y = 3.2
-    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.04, 8, 48), ringMat.clone())
-    ;(ring2.material as THREE.MeshBasicMaterial).color.set(NEON_PINK)
-    ring2.position.y = 3.6
-    ring2.rotation.x = Math.PI / 3
-    const ring3 = new THREE.Mesh(new THREE.TorusGeometry(3.0, 0.03, 6, 48), ringMat.clone())
-    ;(ring3.material as THREE.MeshBasicMaterial).color.set(NEON_CYAN)
-    ;(ring3.material as THREE.MeshBasicMaterial).opacity = 0.3
-    ring3.position.y = 2.8
-    ring3.rotation.x = Math.PI / 2
-    this.holoRing.add(ring1, ring2, ring3)
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.8, 0.05, 8, 48), ringMat)
+    ring.position.y = 2.4
+    ring.rotation.x = Math.PI / 3
+    this.holoRing.add(ring)
     this.centralHub.add(this.holoRing)
 
-    // Holo projector pedestal
-    const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 0.25, 12), metalMat)
-    pedestal.position.y = 0.12
-    pedestal.receiveShadow = true
-    this.centralHub.add(pedestal)
-
-    const holoCore = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.35, 0),
-      new THREE.MeshStandardMaterial({
-        color: NEON_CYAN,
-        emissive: NEON_CYAN,
-        emissiveIntensity: 2.2,
-        roughness: 0.15,
-        metalness: 0.5,
-        transparent: true,
-        opacity: 0.85,
-      }),
-    )
-    holoCore.position.y = 3.0
-    this.centralHub.add(holoCore)
-    this.flickerMats.push({
-      mat: holoCore.material as THREE.MeshStandardMaterial,
-      base: 2.2,
-      t: Math.random() * 2,
-    })
-
-    const hubLight = new THREE.PointLight(NEON_CYAN, 16, 16, 1.6)
-    hubLight.position.set(0, 3.2, 0)
-    this.centralHub.add(hubLight)
-    const hubFill = new THREE.PointLight(NEON_PINK, 10, 12, 1.8)
-    hubFill.position.set(0, 1.5, 0)
-    this.centralHub.add(hubFill)
-
-    // Hub ground glow decal
     const glowTex = this.makeGlowTexture()
     const hubGlow = new THREE.Mesh(
-      new THREE.PlaneGeometry(8, 8),
+      new THREE.PlaneGeometry(5, 5),
       new THREE.MeshBasicMaterial({
         color: NEON_CYAN,
         map: glowTex,
         transparent: true,
-        opacity: 0.2,
+        opacity: 0.14,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
@@ -1086,159 +576,6 @@ export class Game {
     this.centralHub.add(hubGlow)
 
     this.scene.add(this.centralHub)
-  }
-
-  /** Small red delivery truck with cargo containers — parked on E/W lane. */
-  private buildDeliveryVehicle() {
-    const truck = new THREE.Group()
-    truck.position.set(-11, 0, 2.5)
-    truck.rotation.y = Math.PI / 2
-
-    const redMat = new THREE.MeshStandardMaterial({ color: 0xcc2222, roughness: 0.45, metalness: 0.55 })
-    const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1818, roughness: 0.5, metalness: 0.6 })
-    const glassMat = new THREE.MeshStandardMaterial({
-      color: 0x55ddff,
-      emissive: 0x224466,
-      emissiveIntensity: 0.3,
-      roughness: 0.1,
-      metalness: 0.8,
-      transparent: true,
-      opacity: 0.7,
-    })
-
-    // Cab
-    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.5, 1.8), redMat)
-    cab.position.set(0, 0.95, -1.2)
-    cab.castShadow = true
-    truck.add(cab)
-    this.worldColliders.push(cab)
-
-    const windshield = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.7), glassMat)
-    windshield.position.set(0, 1.2, -0.18)
-    windshield.rotation.x = -0.15
-    truck.add(windshield)
-
-    // Cargo bed
-    const bed = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.15, 3.2), darkMat)
-    bed.position.set(0, 0.55, 1.0)
-    truck.add(bed)
-
-    // Mini containers on bed
-    const cargoMat = new THREE.MeshStandardMaterial({ color: 0x2a4858, roughness: 0.52, metalness: 0.68 })
-    const cargo = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.5, 2.8), cargoMat)
-    cargo.position.set(0, 1.25, 1.0)
-    cargo.castShadow = true
-    truck.add(cargo)
-    const cargo2 = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 2.4), darkMat)
-    cargo2.position.set(0, 2.15, 0.8)
-    cargo2.castShadow = true
-    truck.add(cargo2)
-
-    // Wheels
-    for (const [wx, wz] of [[-0.7, -0.5], [0.7, -0.5], [-0.7, 1.8], [0.7, 1.8]] as [number, number][]) {
-      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.22, 10), darkMat)
-      wheel.rotation.z = Math.PI / 2
-      wheel.position.set(wx, 0.28, wz)
-      truck.add(wheel)
-    }
-
-    // Rear blinker emissive
-    const blinker = new THREE.Mesh(
-      new THREE.BoxGeometry(0.3, 0.15, 0.05),
-      new THREE.MeshStandardMaterial({
-        color: NEON_ORANGE,
-        emissive: NEON_ORANGE,
-        emissiveIntensity: 1.5,
-      }),
-    )
-    blinker.position.set(0, 0.9, 2.5)
-    truck.add(blinker)
-    this.flickerMats.push({ mat: blinker.material as THREE.MeshStandardMaterial, base: 1.5, t: Math.random() * 1.5 })
-
-    this.scene.add(truck)
-  }
-
-  private buildCourtyardProps() {
-    const metalMat = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.4, metalness: 0.8 })
-
-    // Shipping containers as cover clusters in quadrant corners (off main lanes)
-    const coverSpots: [number, number, number, number][] = [
-      [-14, -14, 0.3, 0x8a3030],
-      [14, -12, -0.2, 0x2a4858],
-      [-13, 13, 0.5, 0x3a3848],
-      [15, 14, -0.4, 0x5a4030],
-      [-15, 5, 0.1, 0x284858],
-      [13, -5, 0.6, 0x483848],
-    ]
-    for (const [cx, cz, rot, col] of coverSpots) {
-      this.addShippingContainer(cx, cz, rot, col, 2.4, 2.6, 6, true)
-    }
-
-    // Stacked pair for layered vertical feel
-    this.addShippingContainer(-14, 14, Math.PI / 4, 0x8a2838, 2.4, 2.6, 6, true)
-    const stackTop = new THREE.Mesh(
-      new THREE.BoxGeometry(2.0, 2.2, 5.0),
-      new THREE.MeshStandardMaterial({ color: 0x2a4858, roughness: 0.5, metalness: 0.7 }),
-    )
-    stackTop.position.set(-14, 4.3, 14)
-    stackTop.rotation.y = Math.PI / 4
-    stackTop.castShadow = true
-    this.scene.add(stackTop)
-    this.worldColliders.push(stackTop)
-
-    for (let lp = 0; lp < 8; lp++) {
-      const angle = (lp / 8) * Math.PI * 2
-      const lx = Math.cos(angle) * (PLAZA_HALF - 3.5)
-      const lz = Math.sin(angle) * (PLAZA_HALF - 3.5)
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 3.2, 8), metalMat)
-      pole.position.set(lx, 1.6, lz)
-      pole.castShadow = true
-      this.scene.add(pole)
-      const lampColor = lp % 2 ? NEON_CYAN : NEON_PINK
-      const lampMat = new THREE.MeshStandardMaterial({
-        color: lampColor,
-        emissive: lampColor,
-        emissiveIntensity: 2.2,
-      })
-      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.1, 0.4), lampMat)
-      lamp.position.set(lx, 3.25, lz)
-      this.scene.add(lamp)
-      this.flickerMats.push({ mat: lampMat, base: 2.2, t: Math.random() * 4 })
-    }
-  }
-
-  private buildCourtyardLighting() {
-    const glowTex = this.makeGlowTexture()
-    const spots: [number, number, number, number][] = [
-      [0, 4, 0, NEON_CYAN],
-      [-12, 3.5, -8, NEON_PINK],
-      [12, 3.5, 8, NEON_YELLOW],
-      [-8, 3.5, 10, NEON_ORANGE],
-      [0, 2.8, -14, NEON_PINK],
-      [0, 2.8, 14, NEON_CYAN],
-      [-14, 2.8, 0, NEON_CYAN],
-      [14, 2.8, 0, NEON_PINK],
-      [-11, 2.5, 2, NEON_ORANGE],
-    ]
-    for (const [x, y, z, color] of spots) {
-      const light = new THREE.PointLight(color, 18, 20, 1.8)
-      light.position.set(x, y, z)
-      this.scene.add(light)
-      const glow = new THREE.Mesh(
-        new THREE.PlaneGeometry(4, 4),
-        new THREE.MeshBasicMaterial({
-          color,
-          map: glowTex,
-          transparent: true,
-          opacity: 0.14,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        }),
-      )
-      glow.rotation.x = -Math.PI / 2
-      glow.position.set(x, 0.04, z)
-      this.scene.add(glow)
-    }
   }
 
   private makeGlowTexture() {
@@ -2037,21 +1374,6 @@ export class Game {
     }
 
     this.holoRing.rotation.y = elapsed * 0.5
-    this.holoRing.children[1].rotation.z = elapsed * 0.9
-    if (this.holoRing.children[2]) {
-      this.holoRing.children[2].rotation.z = -elapsed * 0.35
-    }
-    if (this.centralHub) {
-      const core = this.centralHub.children.find(
-        (c) => c instanceof THREE.Mesh && c.geometry instanceof THREE.OctahedronGeometry,
-      ) as THREE.Mesh | undefined
-      if (core) core.rotation.y = elapsed * 1.2
-    }
-
-    for (const h of this.shopHolos) {
-      h.group.position.y = h.baseY + Math.sin(elapsed * 1.2 + h.phase) * 0.08
-      h.group.rotation.y = h.fixedYaw
-    }
 
     updateAmbience(this.ambience, dt, elapsed)
   }

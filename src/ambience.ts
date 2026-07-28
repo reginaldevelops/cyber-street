@@ -606,93 +606,24 @@ export function buildWallMachinery(
 
 export function populateSceneAmbience(
   scene: THREE.Scene,
-  flickerMats: { mat: THREE.MeshStandardMaterial; base: number; t: number }[],
+  _flickerMats: { mat: THREE.MeshStandardMaterial; base: number; t: number }[],
 ): AmbienceState {
   ensureSharedMaterials()
   const state: AmbienceState = { droids: [], holoPanels: [], steamVents: [], critters: [] }
 
-  // ── Droid NPCs (non-combat) ──
-  const d1 = buildDroidNPC(-4, 8, 'idle')
-  d1.root.rotation.y = -0.6
-  state.droids.push(d1)
+  const marketDroid = buildDroidNPC(2, 3, 'idle')
+  marketDroid.root.rotation.y = 0.8
+  state.droids.push(marketDroid)
+  scene.add(marketDroid.root)
 
-  const d2 = buildDroidNPC(10, -3, 'typing')
-  state.droids.push(d2)
-  const holoAtDroid = buildHoloPanel(10.6, 1.55, -2.4)
-  holoAtDroid.fixedYaw = -Math.PI * 0.35
-  state.holoPanels.push(holoAtDroid)
-  scene.add(holoAtDroid.group)
+  const barDroid = buildDroidNPC(-15, 1, 'idle')
+  barDroid.root.rotation.y = 0.3
+  state.droids.push(barDroid)
+  scene.add(barDroid.root)
 
-  const d3 = buildDroidNPC(-12, 12, 'walking')
-  d3.root.userData.spawn = new THREE.Vector2(-12, 12)
-  d3.path = [
-    new THREE.Vector2(0, 0),
-    new THREE.Vector2(3, 0),
-    new THREE.Vector2(3, -3),
-    new THREE.Vector2(0, -3),
-  ]
-  state.droids.push(d3)
-
-  const d4 = buildDroidNPC(3, 6, 'idle')
-  d4.root.rotation.y = 2.1
-  state.droids.push(d4)
-
-  for (const d of state.droids) scene.add(d.root)
-
-  // ── Holographic UI panels ──
-  const holoFountain = buildHoloPanel(-2.2, 2.1, 0.5)
-  holoFountain.fixedYaw = 0.4
-  state.holoPanels.push(holoFountain)
-  scene.add(holoFountain.group)
-
-  const holoTech = buildHoloPanel(9.2, 2.8, -17.8)
-  holoTech.fixedYaw = Math.PI
-  state.holoPanels.push(holoTech)
-  scene.add(holoTech.group)
-
-  for (const h of state.holoPanels) {
-    flickerMats.push({ mat: h.borderMat, base: 2.2, t: Math.random() * 3 })
-  }
-
-  // ── Vehicles & cargo (truck lives in game.ts buildDeliveryVehicle) ──
-  scene.add(buildFlatbedCart(14, -6, CONTAINER_ORANGE))
-  scene.add(buildFlatbedCart(-5, -12))
-  scene.add(buildShippingContainer(12, 0, 10, CONTAINER_BLUE))
-  scene.add(buildShippingContainer(13.1, 0, 10, CONTAINER_RED))
-  scene.add(buildShippingContainer(-10, 0, -10, CONTAINER_RED))
-
-  // ── Crates & industrial boxes ──
-  scene.add(buildIndustrialCrate(7, 0, 3))
-  scene.add(buildIndustrialCrate(7.7, 0, 3.4, 0.45))
-  scene.add(buildIndustrialCrate(-12, 0, -2, 0.65))
-  scene.add(buildIndustrialCrate(4, 0, 12, 0.5))
-
-  // ── Wall machinery (shop facades) ──
-  scene.add(buildWallMachinery(-10, 2.8, -15.85, 0))
-  scene.add(buildWallMachinery(10, 3.2, -15.85, 0))
-  scene.add(buildWallMachinery(-15.85, 2.5, -6, Math.PI / 2))
-
-  // ── Steam vents ──
-  for (const [vx, vz] of [
-    [-6, -8],
-    [8, 12],
-    [15, 2],
-    [-11, -8],
-  ] as const) {
-    const vent = buildSteamVent(vx, 0.02, vz)
-    state.steamVents.push(vent)
-    scene.add(vent.grate, vent.steam)
-  }
-
-  // ── Ambient critters ──
-  const rat1 = buildCyberRat(-2, 5)
-  const rat2 = buildCyberRat(5, -4)
-  state.critters.push(rat1, rat2)
-  scene.add(rat1.root, rat2.root)
-
-  const bird = buildDroneBird(0, 4.2, 8)
-  state.critters.push(bird)
-  scene.add(bird.root)
+  const vent = buildSteamVent(6, 0.02, -6)
+  state.steamVents.push(vent)
+  scene.add(vent.grate, vent.steam)
 
   return state
 }
