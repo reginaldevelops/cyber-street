@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { buildModernTower, towerColliderMeshes } from './modernBuilding.js'
+import { buildPlazaStreet } from './plazaStreet.js'
 
 // ── Palette (purple-grey cyber-industrial) ────────────────────────────────
 export const PLAZA_HALF = 20
@@ -708,6 +709,7 @@ function buildStreetRing(ctx: CitySurroundContext): THREE.Group {
 
 /** Master builder — all surround systems + stats for budget tracking. */
 export function buildCitySurround(ctx: CitySurroundContext): CitySurroundStats {
+  buildPlazaStreet({ scene: ctx.scene, flickerMats: ctx.flickerMats })
   buildPerimeterCity(ctx)
   buildVerticalNeonSigns(ctx)
   buildSkylineBackdrop(ctx)

@@ -86,29 +86,6 @@ function addCollider(root: THREE.Group, ctx: GroundBuildContext) {
   return mesh
 }
 
-function streetRing(mat: THREE.Material, extra?: (root: THREE.Group) => void) {
-  const root = new THREE.Group()
-  root.name = 'street-ring'
-  const streetW = STREET_OUTER - STREET_INNER
-  const mid = (STREET_INNER + STREET_OUTER) / 2
-  for (const side of ['north', 'south', 'east', 'west'] as const) {
-    const len = PLAZA_SIZE + streetW * 2
-    const strip = new THREE.Mesh(
-      new THREE.PlaneGeometry(side === 'north' || side === 'south' ? len : streetW, side === 'north' || side === 'south' ? streetW : len),
-      mat,
-    )
-    strip.rotation.x = -Math.PI / 2
-    strip.receiveShadow = true
-    if (side === 'north') strip.position.set(0, 0.005, -mid)
-    else if (side === 'south') strip.position.set(0, 0.005, mid)
-    else if (side === 'west') strip.position.set(-mid, 0.005, 0)
-    else strip.position.set(mid, 0.005, 0)
-    root.add(strip)
-  }
-  extra?.(root)
-  return root
-}
-
 function makeGrateTexture(variant: 'standard' | 'heavy' | 'fine' | 'rusty') {
   return makeCanvasTexture(128, 128, (g) => {
     g.fillStyle = variant === 'rusty' ? '#2a2018' : '#1a1822'
@@ -257,16 +234,6 @@ function buildGrateDeep(ctx: GroundBuildContext): THREE.Group {
   hubGrate.position.y = 0.025
   root.add(hubGrate)
 
-  for (const ch of [
-    [0, -PLAZA_HALF + 1.4, PLAZA_SIZE - 3, 0],
-    [0, PLAZA_HALF - 1.4, PLAZA_SIZE - 3, 0],
-    [-PLAZA_HALF + 1.4, 0, PLAZA_SIZE - 3, Math.PI / 2],
-    [PLAZA_HALF - 1.4, 0, PLAZA_SIZE - 3, Math.PI / 2],
-  ] as [number, number, number, number][]) {
-    addDrainChannel(root, ctx, ch[0], ch[1], ch[2], ch[3], NEON_CYAN, 0.38, 0.008)
-  }
-
-  root.add(streetRing(new THREE.MeshStandardMaterial({ map: grateTex, color: 0x2a3038, roughness: 0.35, metalness: 0.85 })))
   return root
 }
 
@@ -368,17 +335,8 @@ function buildGrateCargo(ctx: GroundBuildContext): THREE.Group {
     root.add(ring)
   }
 
-  addDrainChannel(root, ctx, 0, 0, 28, 0, NEON_CYAN, 0.3, 0.007)
   addDrainChannel(root, ctx, 0, 0, 28, Math.PI / 2, NEON_CYAN, 0.3, 0.007)
 
-  root.add(streetRing(steelMat, (sr) => {
-    for (let i = -20; i <= 20; i += 4) {
-      const b = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.12), rubberMat)
-      b.rotation.x = -Math.PI / 2
-      b.position.set(i, 0.008, -(STREET_INNER + STREET_OUTER) / 2)
-      sr.add(b)
-    }
-  }))
   return root
 }
 
@@ -467,12 +425,6 @@ function buildGrateNeonDrain(ctx: GroundBuildContext): THREE.Group {
     root.add(r)
   }
 
-  root.add(streetRing(new THREE.MeshStandardMaterial({ color: 0x0a0812, roughness: 0.2, metalness: 0.8 }), (sr) => {
-    const mid = (STREET_INNER + STREET_OUTER) / 2
-    for (const side of [-1, 1]) {
-      addDrainChannel(sr, ctx, side * mid, 0, PLAZA_SIZE, Math.PI / 2, NEON_CYAN, 0.28, 0.006)
-    }
-  }))
   return root
 }
 
@@ -589,7 +541,6 @@ function buildGrateRustPipe(ctx: GroundBuildContext): THREE.Group {
   addDrainChannel(root, ctx, -PLAZA_HALF + 1.3, 0, PLAZA_SIZE - 3, Math.PI / 2, NEON_ORANGE, 0.36)
   addDrainChannel(root, ctx, 0, PLAZA_HALF - 1.3, PLAZA_SIZE - 3, 0, NEON_ORANGE, 0.36)
 
-  root.add(streetRing(new THREE.MeshStandardMaterial({ map: grateTex, color: 0x2a2420, roughness: 0.5, metalness: 0.7 })))
   return root
 }
 
