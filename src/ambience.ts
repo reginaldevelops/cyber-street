@@ -616,11 +616,6 @@ export function populateSceneAmbience(
   state.droids.push(marketDroid)
   scene.add(marketDroid.root)
 
-  const barDroid = buildDroidNPC(-15, 1, 'idle')
-  barDroid.root.rotation.y = 0.3
-  state.droids.push(barDroid)
-  scene.add(barDroid.root)
-
   const vent = buildSteamVent(6, 0.02, -6)
   state.steamVents.push(vent)
   scene.add(vent.grate, vent.steam)

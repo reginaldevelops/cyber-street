@@ -294,7 +294,6 @@ export class Game {
     this.scene.add(fill)
 
     this.buildPlazaFloor(this.groundConcept)
-    this.buildMarketStalls()
     this.buildCentralHub()
 
     buildCitySurround({
@@ -393,43 +392,6 @@ export class Game {
     return tex
   }
 
-  /** Drie marktkramen in het midden — één cyan accent. */
-  private buildMarketStalls() {
-    const labels = ['FOOD', 'LOOT', 'GEAR']
-    const spots: [number, number, number][] = [
-      [-5, 2, 0.2], [5, 2, -0.2], [0, -5, 0],
-    ]
-    const contColor = 0x2a4858
-
-    spots.forEach(([sx, sz, face], i) => {
-      const stall = new THREE.Group()
-      stall.position.set(sx, 0, sz)
-      stall.rotation.y = face
-
-      const contW = 2.2
-      const contH = 2.4
-      const contD = 3.2
-      const body = new THREE.Mesh(
-        new THREE.BoxGeometry(contW, contH, contD),
-        new THREE.MeshStandardMaterial({ color: contColor, roughness: 0.52, metalness: 0.68 }),
-      )
-      body.position.y = contH / 2
-      body.castShadow = true
-      stall.add(body)
-      this.worldColliders.push(body)
-
-      const signTex = this.makeSignTexture(labels[i], NEON_CYAN)
-      const signMat = new THREE.MeshStandardMaterial({
-        map: signTex, emissive: NEON_CYAN, emissiveMap: signTex, emissiveIntensity: 0.65,
-      })
-      const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.38), signMat)
-      sign.position.set(0, contH + 0.1, contD / 2 + 0.06)
-      stall.add(sign)
-
-      this.scene.add(stall)
-    })
-  }
-
   /** Rustig middelpunt — fontein + één holo-ring. */
   private buildCentralHub() {
     this.centralHub = new THREE.Group()
@@ -462,22 +424,6 @@ export class Game {
     ring.rotation.x = Math.PI / 3
     this.holoRing.add(ring)
     this.centralHub.add(this.holoRing)
-
-    const glowTex = this.makeGlowTexture()
-    const hubGlow = new THREE.Mesh(
-      new THREE.PlaneGeometry(5, 5),
-      new THREE.MeshBasicMaterial({
-        color: NEON_CYAN,
-        map: glowTex,
-        transparent: true,
-        opacity: 0.14,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }),
-    )
-    hubGlow.rotation.x = -Math.PI / 2
-    hubGlow.position.y = 0.03
-    this.centralHub.add(hubGlow)
 
     this.scene.add(this.centralHub)
   }

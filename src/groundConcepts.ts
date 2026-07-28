@@ -203,15 +203,6 @@ function buildGrateDeep(ctx: GroundBuildContext): THREE.Group {
         grate.receiveShadow = true
         root.add(grate)
         addBolts(root, cx, cz, tileSize / 2, 0.022, boltMat)
-
-        if (rand(gx * 7 + gz) > 0.82) {
-          const steam = new THREE.Mesh(
-            new THREE.PlaneGeometry(0.8, 1.4),
-            new THREE.MeshBasicMaterial({ color: 0x8899aa, transparent: true, opacity: 0.12, depthWrite: false, blending: THREE.AdditiveBlending }),
-          )
-          steam.position.set(cx, 0.05, cz)
-          root.add(steam)
-        }
       } else {
         const slab = new THREE.Mesh(new THREE.PlaneGeometry(tileSize - 0.1, tileSize - 0.1), solidMat)
         slab.rotation.x = -Math.PI / 2
@@ -221,15 +212,7 @@ function buildGrateDeep(ctx: GroundBuildContext): THREE.Group {
     }
   }
 
-  // Central octagonal drain hub
-  const hubMat = new THREE.MeshStandardMaterial({ color: 0x2a3040, roughness: 0.35, metalness: 0.88 })
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2
-    const seg = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 0.9), hubMat)
-    seg.position.set(Math.cos(a) * 2.2, 0.02, Math.sin(a) * 2.2)
-    seg.rotation.y = -a
-    root.add(seg)
-  }
+  // Central drain hub
   const hubGrate = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.05, 8), grateMat)
   hubGrate.position.y = 0.025
   root.add(hubGrate)

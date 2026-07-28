@@ -12,6 +12,7 @@ const MARKING_WHITE = 0xf2f2f2
 const CURB = 0x4a4848
 const NEON_CYAN = 0x00f6ff
 const MARK_Y = 0.022
+const STREET_SURFACE_Y = 0.008
 
 export interface PlazaStreetContext {
   scene: THREE.Scene
@@ -315,18 +316,6 @@ function addStraightMarkings(root: THREE.Group) {
   }
 }
 
-/** Corner intersection chevrons — subtle turn guidance. */
-function addCornerChevrons(root: THREE.Group, cx: number, cz: number, rotY: number) {
-  const mat = markingMat(0.06)
-  for (let i = 0; i < 3; i++) {
-    const chev = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.14), mat)
-    chev.rotation.x = -Math.PI / 2
-    chev.rotation.y = rotY
-    chev.position.set(cx + Math.cos(rotY + Math.PI / 2) * i * 0.55, MARK_Y, cz + Math.sin(rotY + Math.PI / 2) * i * 0.55)
-    root.add(chev)
-  }
-}
-
 function addCurbs(root: THREE.Group) {
   const len = PLAZA_SIZE
   addCurbSegment(root, 0, -STREET_INNER + 0.11, len, true)
@@ -359,12 +348,6 @@ export function buildPlazaStreet(ctx: PlazaStreetContext): THREE.Group {
   addZebraCrossing(root, STREET_MID, 14, crossSpan, crossDepth, Math.PI / 2)
   addStopBar(root, STREET_MID, 16.2, crossSpan, true)
 
-  // Corner turn hints
-  addCornerChevrons(root, -STREET_MID, -STREET_MID, Math.PI / 4)
-  addCornerChevrons(root, STREET_MID, -STREET_MID, (3 * Math.PI) / 4)
-  addCornerChevrons(root, -STREET_MID, STREET_MID, -Math.PI / 4)
-  addCornerChevrons(root, STREET_MID, STREET_MID, (-3 * Math.PI) / 4)
-
   // Lamps on outer sidewalk — skip corner zones
   const lampSpacing = 9
   const lampInset = STREET_OUTER - 0.55
@@ -375,10 +358,12 @@ export function buildPlazaStreet(ctx: PlazaStreetContext): THREE.Group {
     addStreetLamp(root, ctx, lampInset, t, Math.PI)
   }
 
-  // School bus — geparkeerd langs oostelijke rijbaan, wielen op asfalt
+  // School bus — parallel geparkeerd op oostelijke rijbaan, wielen op asfalt
   const bus = buildSchoolBus()
-  bus.position.set(STREET_MID + 0.15, 0, 5.5)
-  bus.rotation.y = Math.PI / 2
+  const parkX = STREET_MID + STREET_W * 0.28
+  const parkZ = 2.5
+  bus.position.set(parkX, STREET_SURFACE_Y, parkZ)
+  bus.rotation.y = Math.PI
   root.add(bus)
 
   ctx.scene.add(root)
