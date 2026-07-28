@@ -140,6 +140,8 @@ export class Game {
   private groundCollider!: THREE.Mesh
   private glowTexture!: THREE.CanvasTexture
   private conceptPanelEl: HTMLElement | null
+  private bgMusic = new Audio('/audio/neon-alley.mp3')
+  private musicStarted = false
 
   constructor(container: HTMLElement, hintEl: HTMLElement) {
     this.container = container
@@ -172,6 +174,7 @@ export class Game {
     this.scene.environmentIntensity = 0.42
 
     this.setupPost()
+    this.setupMusic()
     this.buildWorld()
     this.buildIsoPlayer()
     this.buildEnemies()
@@ -186,6 +189,20 @@ export class Game {
     this.clock.start()
     this.animate()
     ;(window as unknown as { __game: Game }).__game = this
+  }
+
+  private setupMusic() {
+    this.bgMusic.loop = true
+    this.bgMusic.volume = 0.42
+    this.bgMusic.preload = 'auto'
+  }
+
+  private startMusic() {
+    if (this.musicStarted) return
+    this.musicStarted = true
+    this.bgMusic.play().catch(() => {
+      this.musicStarted = false
+    })
   }
 
   private setupPost() {
@@ -661,7 +678,13 @@ export class Game {
   // ── Input ───────────────────────────────────────────────────────────────
 
   private bindEvents() {
+    const beginPlay = () => {
+      this.startMusic()
+      this.hintEl.classList.add('hidden')
+    }
+
     window.addEventListener('keydown', (e) => {
+      beginPlay()
       if (e.code.startsWith('Digit')) {
         const concept = conceptByKey(e.code.replace('Digit', ''))
         if (concept) this.switchGroundConcept(concept)
@@ -677,6 +700,7 @@ export class Game {
       this.updateCrosshair()
     })
     canvas.addEventListener('mousedown', (e) => {
+      beginPlay()
       if (e.button === 0) this.firing = true
     })
     document.addEventListener('mouseup', (e) => {
