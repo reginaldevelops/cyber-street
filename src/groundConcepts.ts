@@ -209,7 +209,7 @@ function buildGrateDeep(ctx: GroundBuildContext): THREE.Group {
   const solidMat = new THREE.MeshStandardMaterial({ color: 0x121018, roughness: 0.78, metalness: 0.25 })
   const boltMat = new THREE.MeshStandardMaterial({ color: 0x5a6068, roughness: 0.35, metalness: 0.92 })
 
-  const tileSize = 1.5
+  const tileSize = 1.65
   const margin = (PLAZA_SIZE - Math.floor(PLAZA_SIZE / tileSize) * tileSize) / 2 + 0.05
   let row = 0
   for (let gz = -PLAZA_HALF + margin; gz < PLAZA_HALF - margin; gz += tileSize, row++) {
