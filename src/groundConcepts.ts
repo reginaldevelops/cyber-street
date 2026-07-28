@@ -208,9 +208,8 @@ function buildGrateDeep(ctx: GroundBuildContext): THREE.Group {
   const grateMat = new THREE.MeshStandardMaterial({ map: grateTex, color: 0x3a4450, roughness: 0.32, metalness: 0.9 })
   const solidMat = new THREE.MeshStandardMaterial({ color: 0x121018, roughness: 0.78, metalness: 0.25 })
   const boltMat = new THREE.MeshStandardMaterial({ color: 0x5a6068, roughness: 0.35, metalness: 0.92 })
-  const lipMat = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.4, metalness: 0.85 })
 
-  const tileSize = 1.85
+  const tileSize = 1.5
   const margin = (PLAZA_SIZE - Math.floor(PLAZA_SIZE / tileSize) * tileSize) / 2 + 0.05
   let row = 0
   for (let gz = -PLAZA_HALF + margin; gz < PLAZA_HALF - margin; gz += tileSize, row++) {
@@ -247,20 +246,6 @@ function buildGrateDeep(ctx: GroundBuildContext): THREE.Group {
         root.add(slab)
       }
     }
-  }
-
-  // Raised steel perimeter lip
-  const lipH = 0.14
-  for (const [bx, bz, rw, rh, px, pz] of [
-    [PLAZA_SIZE, lipH, 0.22, PLAZA_SIZE, 0, -PLAZA_HALF],
-    [PLAZA_SIZE, lipH, 0.22, PLAZA_SIZE, 0, PLAZA_HALF],
-    [lipH, PLAZA_SIZE, PLAZA_SIZE, 0.22, -PLAZA_HALF, 0],
-    [lipH, PLAZA_SIZE, PLAZA_SIZE, 0.22, PLAZA_HALF, 0],
-  ] as [number, number, number, number, number, number][]) {
-    const lip = new THREE.Mesh(new THREE.BoxGeometry(rw, bx, rh), lipMat)
-    lip.position.set(px, lipH / 2, pz)
-    lip.castShadow = true
-    root.add(lip)
   }
 
   // Central octagonal drain hub
