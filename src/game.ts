@@ -4,64 +4,47 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-
+import { populateSceneAmbience, updateAmbience, makeGreenGridTexture, type AmbienceState } from './ambience'
+import {
+  buildGroundConcept,
+  GROUND_CONCEPTS,
+  conceptByKey,
+  type GroundConceptId,
+} from './groundConcepts.js'
+import { buildCitySurround } from './citySurround.js'
+import { loadHitemPlayer, updatePlayerAnimations } from './playerModel.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
 const SPRINT_SPEED = 8.8
-const ACCEL = 14 // hoe snel je op snelheid komt (hoger = directer)
-const DECEL = 11 // hoe snel je afremt
-const MOUSE_SENS = 0.0021
-const PITCH_MIN = -0.5
-const PITCH_MAX = 0.62
+const ACCEL = 14
+const DECEL = 11
 
-const CAM_DIST = 4.8
-const CAM_HEIGHT = 2.4
-const CAM_FOLLOW = 9 // smoothing van de camera-focus
-const FOV_WALK = 62
-const FOV_SPRINT = 70
+const ISO_FRUSTUM = 34
+const ISO_CAM_OFFSET = new THREE.Vector3(26, 26, 26)
+const ISO_FOLLOW = 9
+const ISO_FORWARD = new THREE.Vector3(-1, 0, -1).normalize()
+const ISO_RIGHT = new THREE.Vector3(1, 0, -1).normalize()
 
 const FIRE_INTERVAL = 0.115
 const GUN_RANGE = 90
-const AIM_ASSIST_ANGLE = 0.045 // rad — kleine snap zodat schieten arcade-achtig aanvoelt
+const AIM_ASSIST_ANGLE = 0.055
 
-const STREET_LENGTH = 72
-const ROAD_WIDTH = 10
-const SIDEWALK_W = 2.2
-const HALF_ROAD = ROAD_WIDTH / 2
-const PLAYER_LIMIT_X = HALF_ROAD + SIDEWALK_W - 0.6
-const PLAYER_LIMIT_Z = STREET_LENGTH / 2 - 1.5
+const PLAZA_SIZE = 40
+const PLAZA_HALF = PLAZA_SIZE / 2
+const PLAYER_LIMIT_X = PLAZA_HALF - 2.5
+const PLAYER_LIMIT_Z = PLAZA_HALF - 2.5
 
-const ENEMY_COUNT = 5
+const ENEMY_COUNT = 3
 const ENEMY_HP = 3
 const ENEMY_SPEED = 2.6
 const ENEMY_RESPAWN = 2.6
 
+/** Combat off while we focus on world exploration — re-enable later. */
+const COMBAT_ENABLED = false
+
 const NEON_CYAN = 0x00f6ff
 const NEON_PINK = 0xff2d95
 const NEON_YELLOW = 0xffe14d
-const DEFAULT_PLAYER_MODEL_URL = '/models/player.glb'
-const PLAYER_TARGET_HEIGHT = 1.78
-
-/** Lokaal bestand, of externe URL via ?glb=https://... in de adresbalk. */
-function resolvePlayerModelUrl(): string {
-  const params = new URLSearchParams(window.location.search)
-  const external = params.get('glb') ?? params.get('model')
-  if (external) return decodeURIComponent(external)
-  return DEFAULT_PLAYER_MODEL_URL
-}
-
-type PlayerAnim = 'idle' | 'walk' | 'run' | 'aim' | 'shoot' | 'draw'
-
-/** Zoek animatieclip op fuzzy naam (Mixamo, Blender, etc.). */
-function findAnimClip(clips: THREE.AnimationClip[], ...patterns: RegExp[]): THREE.AnimationClip | undefined {
-  for (const pat of patterns) {
-    const hit = clips.find((c) => pat.test(c.name))
-    if (hit) return hit
-  }
-  return undefined
-}
-
 const NEON_ORANGE = 0xff6622
 
 type Keys = { w: boolean; a: boolean; s: boolean; d: boolean; sprint: boolean }
@@ -99,9 +82,9 @@ function dampAngle(current: number, target: number, lambda: number, dt: number) 
   return current + delta * (1 - Math.exp(-lambda * dt))
 }
 
-const _aimQuat = new THREE.Quaternion()
-const _aimEuler = new THREE.Euler()
-const _animQuat = new THREE.Quaternion()
+const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+const _mouseNdc = new THREE.Vector2()
+const _aimHit = new THREE.Vector3()
 
 export class Game {
   private container: HTMLElement
@@ -113,45 +96,34 @@ export class Game {
   private composer!: EffectComposer
   private bloom!: UnrealBloomPass
   private scene = new THREE.Scene()
-  private camera = new THREE.PerspectiveCamera(FOV_WALK, 1, 0.1, 220)
+  private camera!: THREE.OrthographicCamera
   private clock = new THREE.Clock()
 
   // Speler
   private player = new THREE.Group()
-  private playerBody = new THREE.Group() // bob + lean
-  private playerModel!: THREE.Group
-  private playerMixer!: THREE.AnimationMixer
-  private playerAnims: Partial<Record<PlayerAnim, THREE.AnimationAction>> = {}
-  private playerAnim: PlayerAnim = 'idle'
-  private playerSkinnedMeshes: THREE.SkinnedMesh[] = []
-  private useProceduralAim = true
-  private modelHasEmbeddedWeapon = false
-  private gunHolder!: THREE.Group
-  private aimBlend = 0
-  private aimBones = {
-    spine: null as THREE.Bone | null,
-    spine1: null as THREE.Bone | null,
-    spine2: null as THREE.Bone | null,
-    neck: null as THREE.Bone | null,
-    rightShoulder: null as THREE.Bone | null,
-    rightArm: null as THREE.Bone | null,
-    rightForeArm: null as THREE.Bone | null,
-    leftShoulder: null as THREE.Bone | null,
-    leftArm: null as THREE.Bone | null,
-    leftForeArm: null as THREE.Bone | null,
-  }
+  private playerBody = new THREE.Group()
+  private legL = new THREE.Group()
+  private legR = new THREE.Group()
   private gun!: THREE.Group
+  private gunHolder = new THREE.Group()
   private muzzle = new THREE.Object3D()
   private muzzleLight!: THREE.PointLight
+  private playerVisorMat!: THREE.MeshStandardMaterial
+  private playerMixer?: THREE.AnimationMixer
+  private playerIdleAction?: THREE.AnimationAction | null
+  private playerWalkAction?: THREE.AnimationAction | null
+  private playerRunAction?: THREE.AnimationAction | null
+  private playerHasSkeleton = false
+  private walkPhase = 0
 
   private velocity = new THREE.Vector3()
   private gunKick = 0
+  private aimYaw = 0
+  private aimPoint = new THREE.Vector3(0, 0, 8)
+  private mouseScreen = { x: 0, y: 0 }
 
   // Camera / input
-  private aimYaw = 0
-  private aimPitch = 0.14
   private camFocus = new THREE.Vector3(0, 0, 0)
-  private pointerLocked = false
   private keys: Keys = { w: false, a: false, s: false, d: false, sprint: false }
   private firing = false
   private fireCooldown = 0
@@ -169,12 +141,33 @@ export class Game {
   private rain!: THREE.Points
   private flickerMats: { mat: THREE.MeshStandardMaterial; base: number; t: number }[] = []
   private holoRing!: THREE.Group
+  private ambience!: AmbienceState
+  private centralHub!: THREE.Group
+  private groundGroup!: THREE.Group
+  private groundConcept: GroundConceptId = 'grate-deep'
+  private groundCollider!: THREE.Mesh
+  private glowTexture!: THREE.CanvasTexture
+  private conceptPanelEl: HTMLElement | null
+  private bgMusic = new Audio('/audio/neon-alley.mp3')
+  private menuMusicPlaying = false
+  private playing = false
+  private startScreenEl: HTMLElement | null
+  private audioHintEl: HTMLElement | null
+
+  private menuCamAngle = 0
 
   constructor(container: HTMLElement, hintEl: HTMLElement) {
     this.container = container
     this.hintEl = hintEl
     this.killsEl = document.getElementById('kills')
     this.crosshairEl = document.getElementById('crosshair')
+    this.conceptPanelEl = document.getElementById('concept-panel')
+    this.startScreenEl = document.getElementById('start-screen')
+    this.audioHintEl = document.getElementById('start-audio-hint')
+    if (!COMBAT_ENABLED) {
+      this.crosshairEl?.classList.add('hidden')
+      document.getElementById('scoreboard')?.classList.add('hidden')
+    }
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -185,35 +178,89 @@ export class Game {
     this.renderer.toneMappingExposure = 1.38
     container.appendChild(this.renderer.domElement)
 
+    const aspect = container.clientWidth / Math.max(container.clientHeight, 1)
+    this.camera = new THREE.OrthographicCamera(
+      (-ISO_FRUSTUM * aspect) / 2,
+      (ISO_FRUSTUM * aspect) / 2,
+      ISO_FRUSTUM / 2,
+      -ISO_FRUSTUM / 2,
+      0.1,
+      220,
+    )
+
     const pmrem = new THREE.PMREMGenerator(this.renderer)
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
-    this.scene.environmentIntensity = 0.28
+    this.scene.environmentIntensity = 0.42
 
     this.setupPost()
+    this.setupMusic()
+    this.setupStartScreen()
     this.buildWorld()
-    this.buildEnemies()
+    this.buildIsoPlayer()
+    if (COMBAT_ENABLED) this.buildEnemies()
     this.bindEvents()
-    this.onResize()
-    void this.bootstrap()
     window.addEventListener('resize', () => this.onResize())
-    ;(window as unknown as { __game: Game }).__game = this
-  }
-
-  private async bootstrap() {
-    this.hintEl.textContent = 'Character laden…'
-    try {
-      await this.loadPlayerModel()
-    } catch (err) {
-      console.error(err)
-      this.hintEl.textContent = 'Kon character niet laden — refresh de pagina'
-      return
-    }
-    this.hintEl.innerHTML =
-      'Klik om te spelen · <b>WASD</b> lopen · <b>Shift</b> sprinten · <b>Muis</b> mikken · <b>Klik</b> schieten'
+    this.onResize()
     this.camFocus.copy(this.player.position)
+    this.mouseScreen.x = window.innerWidth / 2
+    this.mouseScreen.y = window.innerHeight / 2
+    this.updateCrosshair()
     this.updateCamera(0)
     this.clock.start()
     this.animate()
+    ;(window as unknown as { __game: Game }).__game = this
+  }
+
+  private setupMusic() {
+    this.bgMusic.loop = true
+    this.bgMusic.volume = 0.42
+    this.bgMusic.preload = 'auto'
+  }
+
+  private setupStartScreen() {
+    const playBtn = document.getElementById('play-btn')
+    if (!playBtn || !this.startScreenEl) return
+
+    document.body.classList.add('menu-mode')
+
+    const unlockMenuMusic = () => {
+      if (this.menuMusicPlaying || this.playing) return
+      this.bgMusic.play().then(() => {
+        this.menuMusicPlaying = true
+        this.audioHintEl?.classList.add('hidden')
+      }).catch(() => {
+        this.audioHintEl?.classList.remove('hidden')
+      })
+    }
+
+    this.startScreenEl.addEventListener('click', unlockMenuMusic)
+    playBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      this.enterGame()
+    })
+
+    // Browsers blokkeren autoplay — hint tonen tot eerste klik
+    this.bgMusic.play().then(() => {
+      this.menuMusicPlaying = true
+      this.audioHintEl?.classList.add('hidden')
+    }).catch(() => {
+      this.audioHintEl?.classList.remove('hidden')
+    })
+  }
+
+  private enterGame() {
+    if (this.playing) return
+    this.playing = true
+
+    this.bgMusic.pause()
+    this.bgMusic.currentTime = 0
+    this.menuMusicPlaying = false
+
+    this.startScreenEl?.classList.add('hidden')
+    document.body.classList.remove('menu-mode')
+    this.player.visible = true
+    this.hintEl.classList.remove('hidden')
+    this.conceptPanelEl?.classList.remove('hidden')
   }
 
   private setupPost() {
@@ -228,11 +275,11 @@ export class Game {
 
   private buildWorld() {
     this.scene.background = new THREE.Color(0x141024)
-    this.scene.fog = new THREE.FogExp2(0x221636, 0.014)
+    this.scene.fog = new THREE.FogExp2(0x221636, 0.016)
 
-    this.scene.add(new THREE.AmbientLight(0x665577, 0.42))
+    this.scene.add(new THREE.AmbientLight(0x665577, 0.45))
 
-    const hemi = new THREE.HemisphereLight(0x8aadff, 0x281018, 0.82)
+    const hemi = new THREE.HemisphereLight(0x8aadff, 0x281018, 0.85)
     this.scene.add(hemi)
 
     const moon = new THREE.DirectionalLight(0xb8c4ff, 0.78)
@@ -240,380 +287,150 @@ export class Game {
     moon.castShadow = true
     moon.shadow.mapSize.set(2048, 2048)
     moon.shadow.camera.near = 1
-    moon.shadow.camera.far = 90
-    moon.shadow.camera.left = -34
-    moon.shadow.camera.right = 34
-    moon.shadow.camera.top = 34
-    moon.shadow.camera.bottom = -34
+    moon.shadow.camera.far = 100
+    moon.shadow.camera.left = -42
+    moon.shadow.camera.right = 42
+    moon.shadow.camera.top = 42
+    moon.shadow.camera.bottom = -42
     this.scene.add(moon)
 
     const fill = new THREE.DirectionalLight(0xff88cc, 0.22)
     fill.position.set(8, 10, 14)
     this.scene.add(fill)
 
-    // Natte weg — iets lichter zodat neon reflecties zichtbaar blijven
-    const roadMat = new THREE.MeshStandardMaterial({
-      color: 0x18141f,
-      roughness: 0.38,
-      metalness: 0.42,
+    this.buildPlazaFloor(this.groundConcept)
+    this.buildCentralHub()
+
+    buildCitySurround({
+      scene: this.scene,
+      flickerMats: this.flickerMats,
+      colliders: this.worldColliders,
     })
-    const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_WIDTH, STREET_LENGTH), roadMat)
-    road.rotation.x = -Math.PI / 2
-    road.receiveShadow = true
-    this.scene.add(road)
-    this.worldColliders.push(road)
 
-    // Middenstrepen
-    const lineMat = new THREE.MeshStandardMaterial({
-      color: NEON_PINK,
-      emissive: NEON_PINK,
-      emissiveIntensity: 1.4,
-    })
-    for (let z = -STREET_LENGTH / 2 + 2; z < STREET_LENGTH / 2; z += 4) {
-      const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 1.8), lineMat)
-      stripe.rotation.x = -Math.PI / 2
-      stripe.position.set(0, 0.02, z)
-      this.scene.add(stripe)
-    }
+    this.rain = this.makeRain()
+    this.scene.add(this.rain)
 
-    // Stoepen met neon-stoepranden
-    const walkMat = new THREE.MeshStandardMaterial({
-      color: 0x221c2a,
-      roughness: 0.55,
-      metalness: 0.22,
-    })
-    for (const side of [-1, 1]) {
-      const walk = new THREE.Mesh(
-        new THREE.BoxGeometry(SIDEWALK_W, 0.14, STREET_LENGTH),
-        walkMat
-      )
-      walk.position.set(side * (HALF_ROAD + SIDEWALK_W / 2), 0.07, 0)
-      walk.receiveShadow = true
-      this.scene.add(walk)
+    this.ambience = populateSceneAmbience(this.scene, this.flickerMats)
+  }
 
-      const curbColor = side < 0 ? NEON_CYAN : NEON_PINK
-      const curbMat = new THREE.MeshStandardMaterial({
-        color: curbColor,
-        emissive: curbColor,
-        emissiveIntensity: 2.4,
-      })
-      const curb = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, STREET_LENGTH), curbMat)
-      curb.position.set(side * HALF_ROAD, 0.14, 0)
-      this.scene.add(curb)
-      this.flickerMats.push({ mat: curbMat, base: 2.4, t: Math.random() * 5 })
-    }
-
-    // Gebouwen — variatie per blok
-    const buildingX = HALF_ROAD + SIDEWALK_W + 3
-    const count = 8
-    for (let i = 0; i < count; i++) {
-      const z = THREE.MathUtils.lerp(
-        -STREET_LENGTH / 2 + 4,
-        STREET_LENGTH / 2 - 4,
-        i / (count - 1)
-      )
-      this.addDetailedBuilding(-buildingX, z, -1, i)
-      this.addDetailedBuilding(buildingX, z, 1, i + 17)
-    }
-
-    this.addStreetProps()
-
+  private addPuddleDecal(x: number, z: number, radius: number, color: number, intensity = 0.22) {
     const glowTex = this.makeGlowTexture()
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x080610,
+      emissive: color,
+      emissiveIntensity: intensity,
+      emissiveMap: glowTex,
+      transparent: true,
+      opacity: 0.75,
+      roughness: 0.1,
+      metalness: 0.9,
+      depthWrite: false,
+    })
+    const puddle = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2, radius * 2), mat)
+    puddle.rotation.x = -Math.PI / 2
+    puddle.position.set(x, 0.025, z)
+    this.scene.add(puddle)
+    this.flickerMats.push({ mat, base: intensity, t: Math.random() * 3 })
+  }
 
-    // Straatverlichting (neon points)
-    const lights: [number, number, number][] = [
-      [-HALF_ROAD - 1, 3.6, -12],
-      [HALF_ROAD + 1, 3.6, 8],
-      [-HALF_ROAD - 1, 3.6, 20],
-      [HALF_ROAD + 1, 3.6, -26],
-    ]
-    lights.forEach(([x, y, z], i) => {
-      const color = i % 2 ? NEON_PINK : NEON_CYAN
-      const light = new THREE.PointLight(color, 20, 24, 1.8)
-      light.position.set(x, y, z)
-      this.scene.add(light)
+  private buildPlazaFloor(concept: GroundConceptId) {
+    this.glowTexture = this.makeGlowTexture()
+    this.groundGroup = buildGroundConcept(concept, {
+      scene: this.scene,
+      flickerMats: this.flickerMats,
+      colliders: this.worldColliders,
+      glowTexture: this.glowTexture,
+    })
+    this.scene.add(this.groundGroup)
+    this.groundCollider = this.worldColliders[this.worldColliders.length - 1]
+    this.groundConcept = concept
+    this.updateConceptPanel()
+  }
 
-      const glow = new THREE.Mesh(
-        new THREE.PlaneGeometry(3.4, 9),
-        new THREE.MeshBasicMaterial({
-          color,
-          map: glowTex,
-          transparent: true,
-          opacity: 0.16,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        })
-      )
-      glow.rotation.x = -Math.PI / 2
-      glow.position.set(x * 0.82, 0.03, z)
-      this.scene.add(glow)
+  private switchGroundConcept(concept: GroundConceptId) {
+    if (concept === this.groundConcept) return
+
+    this.scene.remove(this.groundGroup)
+    this.groundGroup.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        obj.geometry.dispose()
+        const mat = obj.material
+        if (Array.isArray(mat)) mat.forEach((m) => m.dispose())
+        else mat.dispose()
+      }
     })
 
-    // Zachte neon "zon" aan het einde van de straat
-    const sun = new THREE.Mesh(
-      new THREE.PlaneGeometry(72, 72),
-      new THREE.MeshBasicMaterial({
-        color: 0xff3d7e,
-        map: glowTex,
-        transparent: true,
-        opacity: 0.75,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        fog: false,
-      })
-    )
-    sun.position.set(0, 10, -STREET_LENGTH / 2 - 36)
-    this.scene.add(sun)
+    const idx = this.worldColliders.indexOf(this.groundCollider)
+    if (idx >= 0) this.worldColliders.splice(idx, 1)
 
-    // Skyline-silhouetten in de verte
-    const skyMat = new THREE.MeshBasicMaterial({ color: 0x0a0616 })
-    for (let i = 0; i < 14; i++) {
-      const w = 4 + Math.random() * 6
-      const h = 10 + Math.random() * 22
-      const tower = new THREE.Mesh(new THREE.BoxGeometry(w, h, 4), skyMat)
-      const side = i % 2 ? 1 : -1
-      tower.position.set(
-        side * (12 + Math.random() * 20),
-        h / 2,
-        -STREET_LENGTH / 2 - 14 - Math.random() * 22
-      )
-      this.scene.add(tower)
-    }
+    this.buildPlazaFloor(concept)
+  }
 
-    // Draaiende hologram-ring boven de straat
+  private updateConceptPanel() {
+    if (!this.conceptPanelEl) return
+    const meta = GROUND_CONCEPTS.find((c) => c.id === this.groundConcept)!
+    this.conceptPanelEl.innerHTML = `
+      <div class="concept-title">${meta.agent}: ${meta.name}</div>
+      <div class="concept-tag">${meta.tagline}</div>
+      <div class="concept-pitch">${meta.pitch}</div>
+      <div class="concept-keys">Druk <b>1–4</b> · vergelijk grate-verbeteringen</div>
+    `
+  }
+
+  private makeSignTexture(text: string, hexColor: number): THREE.CanvasTexture {
+    const c = document.createElement('canvas')
+    c.width = 256
+    c.height = 64
+    const ctx = c.getContext('2d')!
+    ctx.fillStyle = '#0a0812'
+    ctx.fillRect(0, 0, 256, 64)
+    const css = `#${hexColor.toString(16).padStart(6, '0')}`
+    ctx.font = 'bold 34px Courier New, monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = css
+    ctx.shadowColor = css
+    ctx.shadowBlur = 14
+    ctx.fillText(text, 128, 32)
+    const tex = new THREE.CanvasTexture(c)
+    tex.needsUpdate = true
+    return tex
+  }
+
+  /** Rustig middelpunt — fontein + één holo-ring. */
+  private buildCentralHub() {
+    this.centralHub = new THREE.Group()
     this.holoRing = new THREE.Group()
+
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0x3a3848, roughness: 0.42, metalness: 0.78 })
+
+    const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.4, 0.2, 12), metalMat)
+    pedestal.position.y = 0.1
+    pedestal.receiveShadow = true
+    this.centralHub.add(pedestal)
+
+    const basin = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.4, 1.6, 0.08, 12),
+      new THREE.MeshStandardMaterial({ color: 0x141018, roughness: 0.15, metalness: 0.85 }),
+    )
+    basin.position.y = 0.24
+    this.centralHub.add(basin)
+
     const ringMat = new THREE.MeshBasicMaterial({
       color: NEON_CYAN,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.5,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       depthWrite: false,
     })
-    const ring1 = new THREE.Mesh(new THREE.TorusGeometry(2.2, 0.05, 8, 64), ringMat)
-    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.04, 8, 64), ringMat.clone())
-    ;(ring2.material as THREE.MeshBasicMaterial).color.set(NEON_PINK)
-    ring2.rotation.x = Math.PI / 3
-    this.holoRing.add(ring1, ring2)
-    this.holoRing.position.set(0, 8.5, -18)
-    this.scene.add(this.holoRing)
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.8, 0.05, 8, 48), ringMat)
+    ring.position.y = 2.4
+    ring.rotation.x = Math.PI / 3
+    this.holoRing.add(ring)
+    this.centralHub.add(this.holoRing)
 
-    this.rain = this.makeRain()
-    this.scene.add(this.rain)
-  }
-
-  private addDetailedBuilding(x: number, z: number, side: number, seed: number) {
-    const rng = (n: number) => {
-      const v = Math.sin(seed * 127.1 + n * 311.7) * 43758.5453
-      return v - Math.floor(v)
-    }
-
-    const variant = seed % 4
-    const height = 5.2 + (seed % 5) * 1.55 + (variant === 3 ? 2.2 : 0)
-    const width = 5.2 + (variant === 1 ? 1.4 : 0) + rng(1) * 0.8
-    const depth = 5 + (variant === 2 ? 1.8 : 0) + rng(2) * 0.6
-    const wallHue = 0x2a2436 + Math.floor(rng(3) * 0x050508)
-    const accentColors = [NEON_CYAN, NEON_PINK, NEON_YELLOW, 0x9a86ff]
-    const neonColor = accentColors[seed % accentColors.length]
-
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: wallHue,
-      roughness: 0.72 + rng(4) * 0.12,
-      metalness: 0.14 + rng(5) * 0.1,
-    })
-    const trimMat = new THREE.MeshStandardMaterial({
-      color: 0x3a3448,
-      roughness: 0.55,
-      metalness: 0.35,
-    })
-    const metalMat = new THREE.MeshStandardMaterial({
-      color: 0x4a5058,
-      roughness: 0.35,
-      metalness: 0.75,
-    })
-
-    const body = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), wallMat)
-    body.position.set(x, height / 2, z)
-    body.castShadow = true
-    body.receiveShadow = true
-    this.scene.add(body)
-    this.worldColliders.push(body)
-
-    // Dakrand + rand details
-    const roofTrim = new THREE.Mesh(new THREE.BoxGeometry(width + 0.12, 0.1, depth + 0.12), trimMat)
-    roofTrim.position.set(x, height + 0.04, z)
-    this.scene.add(roofTrim)
-
-    const faceX = side > 0 ? -1 : 1
-    const faceWorldX = x + faceX * (width / 2 + 0.06)
-
-    // Ground floor plint (donkerder)
-    const plinthH = variant === 1 ? 1.35 : 0.85
-    const plinth = new THREE.Mesh(
-      new THREE.BoxGeometry(width + 0.04, plinthH, depth + 0.06),
-      new THREE.MeshStandardMaterial({ color: 0x1a1622, roughness: 0.85, metalness: 0.1 })
-    )
-    plinth.position.set(x, plinthH / 2, z)
-    plinth.receiveShadow = true
-    this.scene.add(plinth)
-
-    // Neon uithangbord — per variant anders
-    const neonMat = new THREE.MeshStandardMaterial({
-      color: neonColor,
-      emissive: neonColor,
-      emissiveIntensity: 2.4,
-      roughness: 0.35,
-      metalness: 0.25,
-    })
-    if (variant === 1) {
-      // Winkel: groot horizontaal bord
-      const sign = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.35, depth * 0.75), neonMat)
-      sign.position.set(faceWorldX, plinthH + 0.55, z)
-      this.scene.add(sign)
-      const awning = new THREE.Mesh(
-        new THREE.BoxGeometry(0.08, 0.04, depth * 0.82),
-        new THREE.MeshStandardMaterial({ color: 0x1a1420, roughness: 0.8, metalness: 0.1 })
-      )
-      awning.position.set(faceWorldX + faceX * 0.18, plinthH + 0.95, z)
-      this.scene.add(awning)
-    } else if (variant === 2) {
-      // Industrieel: verticale neon strip
-      const sign = new THREE.Mesh(new THREE.BoxGeometry(0.08, height * 0.55, 0.14), neonMat)
-      sign.position.set(faceWorldX, height * 0.52, z)
-      this.scene.add(sign)
-      // Buizen langs gevel
-      for (let p = 0; p < 3; p++) {
-        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, height * 0.7, 6), metalMat)
-        pipe.position.set(faceWorldX + faceX * 0.04, height * 0.45, z - depth / 2 + 1 + p * (depth - 2) / 2)
-        this.scene.add(pipe)
-      }
-    } else {
-      const sign = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, depth * 0.55), neonMat)
-      sign.position.set(faceWorldX, height * 0.62 + rng(6) * 0.4, z)
-      this.scene.add(sign)
-    }
-    this.flickerMats.push({ mat: neonMat, base: 2.4, t: rng(7) * 6 })
-
-    // Balkons / vensterbanken (tower & standard)
-    if (variant === 0 || variant === 3) {
-      const rows = Math.floor(height / 2.2)
-      for (let r = 1; r < rows; r++) {
-        if (rng(10 + r) > 0.45) continue
-        const ledge = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.04, depth * 0.35), trimMat)
-        ledge.position.set(faceWorldX, 1.4 + r * 2, z + (rng(11 + r) - 0.5) * depth * 0.25)
-        this.scene.add(ledge)
-      }
-    }
-
-    // Ramen op straatkant
-    const windowGeo = new THREE.PlaneGeometry(0.38, 0.28)
-    const rows = Math.max(2, Math.floor((height - plinthH) / 1.45))
-    const cols = variant === 1 ? 5 : 4
-    const windowMesh = new THREE.InstancedMesh(
-      windowGeo,
-      new THREE.MeshBasicMaterial({ color: 0xffffff }),
-      rows * cols
-    )
-    const dummy = new THREE.Object3D()
-    const color = new THREE.Color()
-    const palette = [0x37e0ff, 0xff5aad, 0xffd76b, 0x9a86ff, 0xaaffcc]
-    let idx = 0
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        dummy.position.set(
-          faceWorldX + faceX * 0.02,
-          plinthH + 0.55 + r * 1.45,
-          z - depth / 2 + 0.85 + c * ((depth - 1.7) / (cols - 1))
-        )
-        dummy.rotation.y = faceX > 0 ? Math.PI / 2 : -Math.PI / 2
-        dummy.updateMatrix()
-        windowMesh.setMatrixAt(idx, dummy.matrix)
-        const lit = rng(20 + idx) > 0.32
-        color.set(lit ? palette[Math.floor(rng(21 + idx) * palette.length)] : 0x18141f)
-        if (lit) color.multiplyScalar(0.75 + rng(22 + idx) * 0.45)
-        windowMesh.setColorAt(idx, color)
-        idx++
-      }
-    }
-    this.scene.add(windowMesh)
-
-    // Dak-antenne / airco units
-    if (variant === 2 || variant === 3 || rng(8) > 0.5) {
-      const ac = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.45), metalMat)
-      ac.position.set(x + (rng(9) - 0.5) * width * 0.5, height + 0.18, z + (rng(12) - 0.5) * depth * 0.4)
-      this.scene.add(ac)
-    }
-    if (rng(13) > 0.55) {
-      const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.2, 6), metalMat)
-      antenna.position.set(x + (rng(14) - 0.5) * width * 0.35, height + 0.65, z)
-      this.scene.add(antenna)
-      const tip = new THREE.Mesh(
-        new THREE.SphereGeometry(0.04, 8, 8),
-        new THREE.MeshStandardMaterial({ color: neonColor, emissive: neonColor, emissiveIntensity: 2 })
-      )
-      tip.position.set(antenna.position.x, height + 1.28, z)
-      this.scene.add(tip)
-    }
-  }
-
-  private addStreetProps() {
-    const metalMat = new THREE.MeshStandardMaterial({
-      color: 0x3a4048,
-      roughness: 0.4,
-      metalness: 0.8,
-    })
-    const crateMat = new THREE.MeshStandardMaterial({ color: 0x2a2228, roughness: 0.85, metalness: 0.1 })
-    const dumpMat = new THREE.MeshStandardMaterial({ color: 0x1a3a32, roughness: 0.6, metalness: 0.35 })
-
-    const propSpots: [number, number][] = [
-      [-HALF_ROAD - 0.5, -18], [HALF_ROAD + 0.5, -6], [-HALF_ROAD - 0.5, 10],
-      [HALF_ROAD + 0.5, 22], [-HALF_ROAD - 0.5, -30], [HALF_ROAD + 0.5, 16],
-    ]
-    propSpots.forEach(([px, pz], i) => {
-      if (i % 3 === 0) {
-        const dumpster = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.65, 0.55), dumpMat)
-        dumpster.position.set(px, 0.38, pz)
-        dumpster.castShadow = true
-        this.scene.add(dumpster)
-        const lid = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.06, 0.57), metalMat)
-        lid.position.set(px, 0.72, pz)
-        this.scene.add(lid)
-      } else if (i % 3 === 1) {
-        for (let c = 0; c < 2 + (i % 2); c++) {
-          const crate = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, 0.45), crateMat)
-          crate.position.set(px + c * 0.5 - 0.25, 0.28 + c * 0.02, pz + (c % 2) * 0.15)
-          crate.rotation.y = c * 0.4
-          crate.castShadow = true
-          this.scene.add(crate)
-        }
-      } else {
-        // Stoom/rooster op stoep
-        const grate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.35), metalMat)
-        grate.position.set(px, 0.17, pz)
-        this.scene.add(grate)
-      }
-    })
-
-    // Neon lantaarnpalen
-    for (let lz = -STREET_LENGTH / 2 + 8; lz < STREET_LENGTH / 2; lz += 14) {
-      for (const sx of [-HALF_ROAD - SIDEWALK_W * 0.5, HALF_ROAD + SIDEWALK_W * 0.5]) {
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 2.8, 8), metalMat)
-        pole.position.set(sx, 1.5, lz)
-        pole.castShadow = true
-        this.scene.add(pole)
-        const lampColor = lz % 28 < 14 ? NEON_CYAN : NEON_PINK
-        const lamp = new THREE.Mesh(
-          new THREE.BoxGeometry(0.18, 0.08, 0.35),
-          new THREE.MeshStandardMaterial({
-            color: lampColor,
-            emissive: lampColor,
-            emissiveIntensity: 2,
-          })
-        )
-        lamp.position.set(sx, 2.85, lz)
-        this.scene.add(lamp)
-      }
-    }
+    this.scene.add(this.centralHub)
   }
 
   private makeGlowTexture() {
@@ -633,9 +450,9 @@ export class Game {
     const count = 1300
     const positions = new Float32Array(count * 3)
     for (let i = 0; i < count; i++) {
-      positions[i * 3] = THREE.MathUtils.randFloatSpread(ROAD_WIDTH + 18)
+      positions[i * 3] = THREE.MathUtils.randFloatSpread(PLAZA_SIZE + 8)
       positions[i * 3 + 1] = THREE.MathUtils.randFloat(0.2, 20)
-      positions[i * 3 + 2] = THREE.MathUtils.randFloatSpread(STREET_LENGTH + 12)
+      positions[i * 3 + 2] = THREE.MathUtils.randFloatSpread(PLAZA_SIZE + 8)
     }
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
@@ -651,306 +468,60 @@ export class Game {
 
   // ── Speler ──────────────────────────────────────────────────────────────
 
-  private buildUzi(metal: THREE.Material, gripMat: THREE.Material, neon: THREE.Material) {
-    const uzi = new THREE.Group()
+  private buildIsoPlayer() {
+    this.player = new THREE.Group()
+    this.playerBody = new THREE.Group()
+    this.legL = new THREE.Group()
+    this.legR = new THREE.Group()
+    this.gun = new THREE.Group()
+    this.gunHolder = new THREE.Group()
+    this.muzzle = new THREE.Object3D()
+    this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
+    this.playerVisorMat = new THREE.MeshStandardMaterial({ color: 0x00f6ff, emissive: 0x00f6ff, emissiveIntensity: 1 })
 
-    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.11, 0.28), metal)
-    receiver.position.set(0, 0, 0.02)
-    uzi.add(receiver)
+    this.player.add(this.playerBody)
+    this.player.position.set(0, 0, 10)
+    this.player.visible = false
+    this.scene.add(this.player)
 
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.2, 10), metal)
-    barrel.rotation.x = Math.PI / 2
-    barrel.position.set(0, 0.02, 0.28)
-    uzi.add(barrel)
-    const comp = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.034, 0.04), metal)
-    comp.position.set(0, 0.02, 0.38)
-    uzi.add(comp)
-
-    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.14, 0.055), gripMat)
-    mag.position.set(0, -0.1, -0.02)
-    mag.rotation.x = 0.22
-    uzi.add(mag)
-
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.11, 0.05), gripMat)
-    grip.position.set(0, -0.1, -0.1)
-    grip.rotation.x = 0.35
-    uzi.add(grip)
-
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.07, 0.16), metal)
-    stock.position.set(0, 0.01, -0.18)
-    uzi.add(stock)
-    const stockWireL = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.05, 0.12), metal)
-    stockWireL.position.set(-0.018, -0.02, -0.14)
-    stockWireL.rotation.z = 0.25
-    uzi.add(stockWireL)
-    const stockWireR = stockWireL.clone()
-    stockWireR.position.x = 0.018
-    stockWireR.rotation.z = -0.25
-    uzi.add(stockWireR)
-
-    const cover = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.025, 0.22), metal)
-    cover.position.set(0, 0.065, 0.02)
-    uzi.add(cover)
-    const charge = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.012, 0.03), metal)
-    charge.position.set(0.03, 0.07, 0.06)
-    uzi.add(charge)
-
-    const cell = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.018, 0.1), neon)
-    cell.position.set(0, -0.01, 0.04)
-    uzi.add(cell)
-
-    const foregrip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.07, 0.04), gripMat)
-    foregrip.position.set(0, -0.05, 0.14)
-    uzi.add(foregrip)
-
-    this.muzzle.position.set(0, 0.02, 0.42)
-    uzi.add(this.muzzle)
-    return uzi
+    void this.loadHitemPlayerModel()
   }
 
-  private findBone(root: THREE.Object3D, pattern: RegExp): THREE.Bone | null {
-    let found: THREE.Bone | null = null
-    root.traverse((obj) => {
-      if (found || !(obj as THREE.Bone).isBone) return
-      if (pattern.test(obj.name)) found = obj as THREE.Bone
-    })
-    return found
-  }
+  private async loadHitemPlayerModel() {
+    try {
+      const rig = await loadHitemPlayer()
+      this.player.remove(this.playerBody)
+      this.player = rig.root
+      this.playerBody = rig.body
+      this.legL = rig.legL
+      this.legR = rig.legR
+      this.gun = rig.gun
+      this.gunHolder = rig.gunHolder
+      this.muzzle = rig.muzzle
+      this.muzzleLight = rig.muzzleLight
+      this.playerVisorMat = rig.visorMat
+      this.playerMixer = rig.mixer
+      this.playerIdleAction = rig.idleAction
+      this.playerWalkAction = rig.walkAction
+      this.playerRunAction = rig.runAction
+      this.playerHasSkeleton = rig.hasSkeleton
 
-  private findBoneByName(root: THREE.Object3D, name: string): THREE.Bone | null {
-    let found: THREE.Bone | null = null
-    root.traverse((obj) => {
-      if (found || !(obj as THREE.Bone).isBone) return
-      if (obj.name === name) found = obj as THREE.Bone
-    })
-    return found
-  }
+      this.player.position.set(0, 0, 10)
+      this.player.visible = this.playing
+      this.scene.add(this.player)
 
-  /** Blend huidige animatie-pose naar aim-pose op een bot (na mixer.update). */
-  private blendBoneTowardAim(bone: THREE.Bone, x: number, y: number, z: number, blend: number) {
-    if (blend <= 0.001) return
-    _animQuat.copy(bone.quaternion)
-    _aimEuler.set(x, y, z)
-    _aimQuat.setFromEuler(_aimEuler)
-    bone.quaternion.copy(_animQuat).slerp(_aimQuat, blend)
-  }
+      if (rig.mixer) {
+        console.info('[player] animation clips ready — walk/idle will play when moving')
+      } else if (rig.hasSkeleton) {
+        console.info('[player] rigged model loaded (no animation clips yet — static pose + bob)')
+      }
 
-  /** Tweehands aim-pose — armen omhoog, volgt pitch + recoil. */
-  private applyPlayerAimPose(blend: number) {
-    if (blend <= 0.001) return
-    const pitch = this.aimPitch + this.gunKick * 0.35
-    const kick = this.gunKick * 0.18
-
-    const { spine, spine1, spine2, neck, rightShoulder, rightArm, rightForeArm, leftShoulder, leftArm, leftForeArm } =
-      this.aimBones
-
-    if (spine) this.blendBoneTowardAim(spine, pitch * 0.08 + kick, 0, 0, blend)
-    if (spine1) this.blendBoneTowardAim(spine1, pitch * 0.12 + kick, 0, 0, blend)
-    if (spine2) this.blendBoneTowardAim(spine2, pitch * 0.2 + kick, 0, 0, blend)
-    if (neck) this.blendBoneTowardAim(neck, pitch * -0.06, 0, 0, blend * 0.65)
-
-    if (rightShoulder) this.blendBoneTowardAim(rightShoulder, 0.12, 0.05, -0.42, blend)
-    if (rightArm) this.blendBoneTowardAim(rightArm, -1.42 - pitch * 0.72, 0.08, -0.12, blend)
-    if (rightForeArm) this.blendBoneTowardAim(rightForeArm, -0.38 - pitch * 0.25, 0.42, 0.04, blend)
-
-    if (leftShoulder) this.blendBoneTowardAim(leftShoulder, 0.08, -0.04, 0.48, blend)
-    if (leftArm) this.blendBoneTowardAim(leftArm, -1.05 - pitch * 0.55, 0.32, 0.62, blend)
-    if (leftForeArm) this.blendBoneTowardAim(leftForeArm, -0.62, 0.22, 0.08, blend)
-  }
-
-  private findBoneBySuffix(root: THREE.Object3D, suffix: string): THREE.Bone | null {
-    const variants = [
-      suffix,
-      suffix.replace('.', ''),
-      `mixamorig:${suffix}`,
-      `mixamorig${suffix}`,
-      `mixamorig:${suffix.replace('.', '')}`,
-    ]
-    for (const name of variants) {
-      const bone = this.findBoneByName(root, name)
-      if (bone) return bone
+      if (this.playerVisorMat.emissiveIntensity > 0) {
+        this.flickerMats.push({ mat: this.playerVisorMat, base: this.playerVisorMat.emissiveIntensity, t: Math.random() * 2 })
+      }
+    } catch (err) {
+      console.error('Failed to load Hitem3D player model', err)
     }
-    return this.findBone(root, new RegExp(`${suffix.replace('.', '\\.')}$`, 'i'))
-  }
-
-  private resolveAimBones() {
-    this.aimBones.spine = this.findBoneBySuffix(this.playerModel, 'Spine')
-    this.aimBones.spine1 = this.findBoneBySuffix(this.playerModel, 'Spine1')
-    this.aimBones.spine2 = this.findBoneBySuffix(this.playerModel, 'Spine2')
-    this.aimBones.neck = this.findBoneBySuffix(this.playerModel, 'Neck')
-    this.aimBones.rightShoulder = this.findBoneBySuffix(this.playerModel, 'RightShoulder')
-    this.aimBones.rightArm = this.findBoneBySuffix(this.playerModel, 'RightArm')
-    this.aimBones.rightForeArm = this.findBoneBySuffix(this.playerModel, 'RightForeArm')
-    this.aimBones.leftShoulder = this.findBoneBySuffix(this.playerModel, 'LeftShoulder')
-    this.aimBones.leftArm = this.findBoneBySuffix(this.playerModel, 'LeftArm')
-    this.aimBones.leftForeArm = this.findBoneBySuffix(this.playerModel, 'LeftForeArm')
-  }
-
-  private updatePlayerSkeleton() {
-    for (const mesh of this.playerSkinnedMeshes) {
-      mesh.skeleton.update()
-    }
-  }
-
-  private setupPlayerAction(clip: THREE.AnimationClip, loop = true): THREE.AnimationAction {
-    const action = this.playerMixer.clipAction(clip)
-    action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
-    if (!loop) action.clampWhenFinished = true
-    action.enabled = true
-    action.setEffectiveWeight(0)
-    action.play()
-    return action
-  }
-
-  private setPlayerActionWeight(anim: PlayerAnim, weight: number) {
-    const action = this.playerAnims[anim]
-    if (action) action.setEffectiveWeight(weight)
-  }
-
-  private fadePlayerAnim(next: PlayerAnim, duration = 0.22) {
-    if (this.playerAnim === next) return
-    const from = this.playerAnims[this.playerAnim]
-    const to = this.playerAnims[next]
-    if (!to) return
-    if (from) from.fadeOut(duration)
-    to.reset().fadeIn(duration).play()
-    this.playerAnim = next
-  }
-
-  private loadPlayerModel(): Promise<void> {
-    const loader = new GLTFLoader()
-    const modelUrl = resolvePlayerModelUrl()
-    console.info('[Cyber Street] Model URL:', modelUrl)
-    return new Promise((resolve, reject) => {
-      loader.load(
-        modelUrl,
-        (gltf) => {
-          this.playerModel = gltf.scene
-          this.playerSkinnedMeshes = []
-          this.modelHasEmbeddedWeapon = false
-
-          this.playerModel.traverse((obj) => {
-            if ((obj as THREE.SkinnedMesh).isSkinnedMesh) {
-              this.playerSkinnedMeshes.push(obj as THREE.SkinnedMesh)
-            }
-            if ((obj as THREE.Mesh).isMesh && /gun|weapon|rifle|uzi|pistol|sword/i.test(obj.name)) {
-              this.modelHasEmbeddedWeapon = true
-            }
-          })
-
-          // Schaal zodat voeten op grond staan op ~1.78m lengte
-          const bounds = new THREE.Box3().setFromObject(this.playerModel)
-          const size = bounds.getSize(new THREE.Vector3())
-          const scale = PLAYER_TARGET_HEIGHT / Math.max(size.y, 0.001)
-          this.playerModel.scale.setScalar(scale)
-          bounds.setFromObject(this.playerModel)
-          this.playerModel.position.y = -bounds.min.y
-          this.playerModel.position.x -= (bounds.min.x + bounds.max.x) * 0.5
-          this.playerModel.position.z -= (bounds.min.z + bounds.max.z) * 0.5
-
-          // Mixamo/modellen kijken vaak -Z op; onze forward is +Z
-          this.playerModel.rotation.y = Math.PI
-
-          this.playerModel.traverse((obj) => {
-            if (!(obj as THREE.Mesh).isMesh) return
-            const mesh = obj as THREE.Mesh
-            mesh.castShadow = true
-            mesh.receiveShadow = true
-            mesh.frustumCulled = false
-            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-            for (const mat of mats) {
-              if (!(mat instanceof THREE.MeshStandardMaterial)) continue
-              mat.roughness = Math.min(mat.roughness + 0.08, 0.72)
-              mat.metalness = Math.max(mat.metalness, 0.18)
-              mat.envMapIntensity = 0.85
-            }
-          })
-
-          this.playerBody.add(this.playerModel)
-          this.player.add(this.playerBody)
-          this.player.position.set(0, 0, 6)
-          this.scene.add(this.player)
-
-          const clips = gltf.animations
-          console.info(
-            '[Cyber Street] GLB geladen — animaties:',
-            clips.length ? clips.map((c) => c.name) : '(geen — statisch model)',
-          )
-
-          this.playerMixer = new THREE.AnimationMixer(this.playerModel)
-
-          const idleClip = findAnimClip(clips, /^idle$/i, /idle/i)
-          const walkClip = findAnimClip(clips, /^walk$/i, /walk/i)
-          const runClip = findAnimClip(clips, /^run$/i, /run/i, /sprint/i)
-          const aimClip = findAnimClip(clips, /aim/i, /rifle/i, /gun_idle/i)
-          const shootClip = findAnimClip(clips, /shoot/i, /fire/i, /recoil/i)
-          const drawClip = findAnimClip(clips, /draw/i, /equip/i, /pull/i)
-
-          if (idleClip) {
-            this.playerAnims.idle = this.setupPlayerAction(idleClip)
-            this.setPlayerActionWeight('idle', 1)
-          }
-          if (walkClip) this.playerAnims.walk = this.setupPlayerAction(walkClip)
-          if (runClip) this.playerAnims.run = this.setupPlayerAction(runClip)
-          if (aimClip) this.playerAnims.aim = this.setupPlayerAction(aimClip)
-          if (shootClip) this.playerAnims.shoot = this.setupPlayerAction(shootClip, false)
-          if (drawClip) this.playerAnims.draw = this.setupPlayerAction(drawClip, false)
-
-          // Custom aim/shoot clips uit Blender → geen procedural arm-pose nodig
-          this.useProceduralAim = !aimClip && !shootClip && !drawClip
-
-          this.resolveAimBones()
-
-          const rightHand = this.findBoneBySuffix(this.playerModel, 'RightHand')
-
-          if (!this.modelHasEmbeddedWeapon) {
-            const metalGun = new THREE.MeshStandardMaterial({ color: 0x1a1c22, roughness: 0.35, metalness: 0.9 })
-            const gripGun = new THREE.MeshStandardMaterial({ color: 0x141210, roughness: 0.78, metalness: 0.12 })
-            const neonGun = new THREE.MeshStandardMaterial({
-              color: NEON_ORANGE,
-              emissive: NEON_ORANGE,
-              emissiveIntensity: 0.9,
-              roughness: 0.35,
-              metalness: 0.45,
-            })
-
-            this.gun = this.buildUzi(metalGun, gripGun, neonGun)
-            this.gun.scale.setScalar(1.15)
-
-            this.gunHolder = new THREE.Group()
-            this.gunHolder.position.set(0.03, 0.09, 0.05)
-            this.gunHolder.rotation.set(-1.25, 0.12, 0.08)
-            this.gunHolder.add(this.gun)
-
-            if (rightHand) {
-              rightHand.add(this.gunHolder)
-            } else {
-              this.playerBody.add(this.gunHolder)
-              this.gunHolder.position.set(0.34, 1.18, 0.28)
-              console.warn('[Cyber Street] Geen RightHand bone — Uzi aan lichaam gehangen')
-            }
-
-            this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
-            this.gun.add(this.muzzleLight)
-            this.muzzleLight.position.set(0, 0.02, 0.42)
-          } else {
-            this.gun = new THREE.Group()
-            this.gunHolder = new THREE.Group()
-            this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
-            if (rightHand) {
-              this.muzzle = new THREE.Object3D()
-              this.muzzle.position.set(0, 0.05, 0.35)
-              rightHand.add(this.muzzle)
-            }
-            console.info('[Cyber Street] Wapen zit in GLB — geen extra Uzi')
-          }
-
-          resolve()
-        },
-        undefined,
-        reject,
-      )
-    })
   }
 
   // ── Vijanden ────────────────────────────────────────────────────────────
@@ -987,10 +558,12 @@ export class Game {
       metalness: 0.9,
       transparent: true,
     })
+    const gridTex = makeGreenGridTexture()
     const visorMat = new THREE.MeshStandardMaterial({
-      color: 0xff2222,
-      emissive: 0xff2222,
-      emissiveIntensity: 2.8,
+      map: gridTex,
+      emissive: 0x22ff66,
+      emissiveMap: gridTex,
+      emissiveIntensity: 2.6,
       transparent: true,
     })
     const coreMat = new THREE.MeshStandardMaterial({
@@ -1032,7 +605,7 @@ export class Game {
     const jawPlate = new THREE.Mesh(new THREE.BoxGeometry(0.16 * scale, 0.05, 0.12), chassisMat)
     jawPlate.position.set(0, 1.48, 0.08)
 
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.2 * scale, 0.045, 0.04), visorMat)
+    const visor = new THREE.Mesh(new THREE.PlaneGeometry(0.2 * scale, 0.14 * scale), visorMat)
     visor.position.set(0, 1.6, 0.12)
     const sensorL = new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 6), coreMat)
     sensorL.position.set(-0.07, 1.54, 0.11)
@@ -1148,32 +721,52 @@ export class Game {
   // ── Input ───────────────────────────────────────────────────────────────
 
   private bindEvents() {
-    window.addEventListener('keydown', (e) => this.setKey(e.code, true))
-    window.addEventListener('keyup', (e) => this.setKey(e.code, false))
+    window.addEventListener('keydown', (e) => {
+      if (!this.playing) return
+      if (e.code.startsWith('Digit')) {
+        const concept = conceptByKey(e.code.replace('Digit', ''))
+        if (concept) this.switchGroundConcept(concept)
+      }
+      this.setKey(e.code, true)
+    })
+    window.addEventListener('keyup', (e) => {
+      if (!this.playing) return
+      this.setKey(e.code, false)
+    })
 
-    this.renderer.domElement.addEventListener('click', () => {
-      if (!this.pointerLocked) this.renderer.domElement.requestPointerLock()
+    const canvas = this.renderer.domElement
+    canvas.addEventListener('mousemove', (e) => {
+      if (!this.playing) return
+      this.mouseScreen.x = e.clientX
+      this.mouseScreen.y = e.clientY
+      this.updateCrosshair()
     })
-    document.addEventListener('pointerlockchange', () => {
-      this.pointerLocked = document.pointerLockElement === this.renderer.domElement
-      this.hintEl.classList.toggle('hidden', this.pointerLocked)
-      if (!this.pointerLocked) this.firing = false
-    })
-    document.addEventListener('mousemove', (e) => {
-      if (!this.pointerLocked) return
-      this.aimYaw -= e.movementX * MOUSE_SENS
-      this.aimPitch = THREE.MathUtils.clamp(
-        this.aimPitch + e.movementY * MOUSE_SENS,
-        PITCH_MIN,
-        PITCH_MAX
-      )
-    })
-    document.addEventListener('mousedown', (e) => {
-      if (this.pointerLocked && e.button === 0) this.firing = true
+    canvas.addEventListener('mousedown', (e) => {
+      if (!this.playing) return
+      if (COMBAT_ENABLED && e.button === 0) this.firing = true
     })
     document.addEventListener('mouseup', (e) => {
+      if (!this.playing || !COMBAT_ENABLED) return
       if (e.button === 0) this.firing = false
     })
+  }
+
+  private updateCrosshair() {
+    if (!COMBAT_ENABLED || !this.crosshairEl) return
+    this.crosshairEl.style.left = `${this.mouseScreen.x}px`
+    this.crosshairEl.style.top = `${this.mouseScreen.y}px`
+    this.crosshairEl.style.margin = '0'
+    this.crosshairEl.style.transform = 'translate(-50%, -50%)'
+  }
+
+  private updateAimFromMouse() {
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    _mouseNdc.x = ((this.mouseScreen.x - rect.left) / rect.width) * 2 - 1
+    _mouseNdc.y = -((this.mouseScreen.y - rect.top) / rect.height) * 2 + 1
+    this.raycaster.setFromCamera(_mouseNdc, this.camera)
+    if (this.raycaster.ray.intersectPlane(_groundPlane, _aimHit)) {
+      this.aimPoint.copy(_aimHit)
+    }
   }
 
   private setKey(code: string, down: boolean) {
@@ -1187,7 +780,11 @@ export class Game {
   private onResize() {
     const w = this.container.clientWidth
     const h = this.container.clientHeight
-    this.camera.aspect = w / h
+    const aspect = w / Math.max(h, 1)
+    this.camera.left = (-ISO_FRUSTUM * aspect) / 2
+    this.camera.right = (ISO_FRUSTUM * aspect) / 2
+    this.camera.top = ISO_FRUSTUM / 2
+    this.camera.bottom = -ISO_FRUSTUM / 2
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(w, h)
     this.composer.setSize(w, h)
@@ -1196,22 +793,23 @@ export class Game {
   // ── Beweging & camera ───────────────────────────────────────────────────
 
   private updatePlayer(dt: number) {
-    if (!this.playerMixer) return
+    if (!this.playing) {
+      this.velocity.set(0, 0, 0)
+      return
+    }
 
-    const forward = new THREE.Vector3(Math.sin(this.aimYaw), 0, Math.cos(this.aimYaw))
-    const right = new THREE.Vector3(Math.cos(this.aimYaw), 0, -Math.sin(this.aimYaw))
+    this.updateAimFromMouse()
 
     const wish = new THREE.Vector3()
-    if (this.keys.w) wish.add(forward)
-    if (this.keys.s) wish.sub(forward)
-    if (this.keys.a) wish.add(right)
-    if (this.keys.d) wish.sub(right)
+    if (this.keys.w) wish.add(ISO_FORWARD)
+    if (this.keys.s) wish.sub(ISO_FORWARD)
+    if (this.keys.d) wish.add(ISO_RIGHT)
+    if (this.keys.a) wish.sub(ISO_RIGHT)
 
     const maxSpeed = this.keys.sprint && this.keys.w ? SPRINT_SPEED : WALK_SPEED
     const hasInput = wish.lengthSq() > 0
     if (hasInput) wish.normalize().multiplyScalar(maxSpeed)
 
-    // Soepel accelereren/afremmen — geen abrupt starten of stoppen
     const lambda = hasInput ? ACCEL : DECEL
     const blend = 1 - Math.exp(-lambda * dt)
     this.velocity.lerp(wish, blend)
@@ -1225,119 +823,90 @@ export class Game {
       this.player.position.z, -PLAYER_LIMIT_Z, PLAYER_LIMIT_Z
     )
 
-    // Lichaam draait vloeiend mee met de aim-richting
-    this.player.rotation.y = dampAngle(this.player.rotation.y, this.aimYaw, 16, dt)
+    const dx = this.aimPoint.x - this.player.position.x
+    const dz = this.aimPoint.z - this.player.position.z
+    if (dx * dx + dz * dz > 0.04) {
+      this.aimYaw = Math.atan2(dx, dz)
+      this.player.rotation.y = dampAngle(this.player.rotation.y, this.aimYaw, 18, dt)
+    }
 
     const speed = this.velocity.length()
     const speedRatio = speed / SPRINT_SPEED
     const moving = speed > 0.12
-    const hasLocomotion = !!(this.playerAnims.idle || this.playerAnims.walk || this.playerAnims.run)
 
-    if (hasLocomotion) {
-      if (moving && this.keys.sprint && this.keys.w && this.playerAnims.run) {
-        this.fadePlayerAnim('run')
-        this.playerMixer.timeScale = THREE.MathUtils.lerp(0.95, 1.2, speedRatio)
-      } else if (moving && this.playerAnims.walk) {
-        this.fadePlayerAnim('walk')
-        this.playerMixer.timeScale = THREE.MathUtils.lerp(0.85, 1.05, speedRatio)
-      } else if (this.playerAnims.idle) {
-        this.fadePlayerAnim('idle')
-        this.playerMixer.timeScale = 1
-      }
+    updatePlayerAnimations(
+      {
+        mixer: this.playerMixer,
+        idleAction: this.playerIdleAction,
+        walkAction: this.playerWalkAction,
+        runAction: this.playerRunAction,
+      },
+      dt,
+      moving,
+      this.keys.sprint && this.keys.w,
+    )
+
+    if (this.playerMixer) {
+      // GLB clips drive locomotion — skip procedural leg swing
+    } else if (moving) {
+      this.walkPhase += dt * (6 + speedRatio * 5)
+      const swing = Math.sin(this.walkPhase) * 0.42 * Math.min(speedRatio * 2, 1)
+      this.legL.rotation.x = swing
+      this.legR.rotation.x = -swing
+      this.playerBody.position.y = Math.abs(Math.sin(this.walkPhase * 2)) * 0.035 * Math.min(speedRatio * 2, 1)
+    } else {
+      this.legL.rotation.x = THREE.MathUtils.damp(this.legL.rotation.x, 0, 12, dt)
+      this.legR.rotation.x = THREE.MathUtils.damp(this.legR.rotation.x, 0, 12, dt)
+      this.playerBody.position.y = THREE.MathUtils.damp(this.playerBody.position.y, 0, 12, dt)
     }
 
-    // Custom aim/shoot animaties uit Blender
-    if (this.playerAnims.aim && this.pointerLocked) {
-      if (this.firing && this.playerAnims.shoot) {
-        const shoot = this.playerAnims.shoot
-        if (!shoot.isRunning() || shoot.time === 0) {
-          shoot.reset().setEffectiveWeight(1).play()
-        }
-      } else {
-        this.playerAnims.aim.setEffectiveWeight(
-          THREE.MathUtils.damp(this.playerAnims.aim.getEffectiveWeight(), 1, 8, dt),
-        )
-        if (!this.playerAnims.aim.isRunning()) this.playerAnims.aim.play()
-      }
-    }
-
-    this.playerMixer.update(dt)
-
-    // Aim-pose via code alleen als GLB geen aim/shoot clips heeft
-    if (this.useProceduralAim) {
-      const aimTarget = this.pointerLocked ? (this.firing ? 1 : 0.82) : 0
-      const aimSpeed = this.firing ? 18 : 10
-      this.aimBlend = THREE.MathUtils.damp(this.aimBlend, aimTarget, aimSpeed, dt)
-      this.applyPlayerAimPose(this.aimBlend)
-    }
-
-    this.updatePlayerSkeleton()
-
-    this.playerBody.position.y = Math.abs(Math.sin(this.clock.elapsedTime * (6 + speedRatio * 4))) * 0.028 * Math.min(speedRatio * 2, 1)
-
-    // In de bocht/strafe leunen — voelt vloeiend en dynamisch
     const localVel = this.velocity.clone().applyAxisAngle(
       new THREE.Vector3(0, 1, 0), -this.player.rotation.y
     )
-    const targetLeanZ = THREE.MathUtils.clamp(-localVel.x * 0.035, -0.16, 0.16)
-    const targetLeanX = THREE.MathUtils.clamp(localVel.z * 0.028, -0.14, 0.14)
+    const targetLeanZ = THREE.MathUtils.clamp(-localVel.x * 0.035, -0.12, 0.12)
+    const targetLeanX = THREE.MathUtils.clamp(localVel.z * 0.028, -0.1, 0.1)
     this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 10, dt)
     this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, targetLeanX, 10, dt)
 
-    // Recoil op wapen (hand-bone volgt aim-pose)
     this.gunKick = Math.max(0, this.gunKick - dt * 6)
-    if (this.gunHolder && !this.modelHasEmbeddedWeapon) {
-      this.gunHolder.rotation.x = -1.25 - this.aimPitch * 0.35 - this.gunKick * 0.4
-      this.gun.rotation.x = -this.gunKick * 0.5
-    }
-
-    if (this.muzzleLight) {
-      this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 260)
-    }
+    this.gunHolder.rotation.x = THREE.MathUtils.damp(
+      this.gunHolder.rotation.x,
+      -0.35 - this.gunKick * 0.35,
+      14,
+      dt,
+    )
+    this.gun.rotation.x = -this.gunKick * 0.5
+    this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 260)
   }
 
   private updateCamera(dt: number) {
-    // Focuspunt loopt de speler soepel achterna
-    this.camFocus.x = THREE.MathUtils.damp(this.camFocus.x, this.player.position.x, CAM_FOLLOW, dt)
-    this.camFocus.z = THREE.MathUtils.damp(this.camFocus.z, this.player.position.z, CAM_FOLLOW, dt)
-
-    const cosP = Math.cos(this.aimPitch)
-    const desired = new THREE.Vector3(
-      this.camFocus.x - Math.sin(this.aimYaw) * CAM_DIST * cosP,
-      CAM_HEIGHT + Math.sin(this.aimPitch) * CAM_DIST * 0.9,
-      this.camFocus.z - Math.cos(this.aimYaw) * CAM_DIST * cosP
-    )
-
-    // Camera niet door gebouwen laten clippen
-    const focusPoint = new THREE.Vector3(this.camFocus.x, 1.6, this.camFocus.z)
-    const toCam = desired.clone().sub(focusPoint)
-    const dist = toCam.length()
-    this.raycaster.set(focusPoint, toCam.clone().normalize())
-    this.raycaster.far = dist
-    const blocked = this.raycaster.intersectObjects(this.worldColliders, false)
-    if (blocked.length > 0) {
-      desired.copy(focusPoint).addScaledVector(toCam.normalize(), Math.max(blocked[0].distance - 0.3, 1.2))
+    if (!this.playing) {
+      this.menuCamAngle += dt * 0.1
+      const orbit = 10
+      this.camFocus.set(
+        Math.sin(this.menuCamAngle) * orbit,
+        0,
+        Math.cos(this.menuCamAngle) * orbit,
+      )
+      const pull = 1.22
+      this.camera.position.set(
+        this.camFocus.x + ISO_CAM_OFFSET.x * pull,
+        ISO_CAM_OFFSET.y * pull,
+        this.camFocus.z + ISO_CAM_OFFSET.z * pull,
+      )
+      this.camera.lookAt(0, 1.4, 0)
+      return
     }
-    this.camera.position.copy(desired)
 
-    // Kijk iets vóór de speler in de aim-richting: GTA-gevoel
-    const lookAhead = new THREE.Vector3(
-      Math.sin(this.aimYaw) * 2 * cosP,
-      1.5 - Math.sin(this.aimPitch) * 2.4,
-      Math.cos(this.aimYaw) * 2 * cosP
-    )
-    this.camera.lookAt(
-      this.camFocus.x + lookAhead.x,
-      lookAhead.y,
-      this.camFocus.z + lookAhead.z
-    )
+    this.camFocus.x = THREE.MathUtils.damp(this.camFocus.x, this.player.position.x, ISO_FOLLOW, dt)
+    this.camFocus.z = THREE.MathUtils.damp(this.camFocus.z, this.player.position.z, ISO_FOLLOW, dt)
 
-    // Sprint = subtiel wijdere FOV
-    const targetFov = this.keys.sprint && this.keys.w && this.velocity.length() > 4
-      ? FOV_SPRINT
-      : FOV_WALK
-    this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 6, dt)
-    this.camera.updateProjectionMatrix()
+    this.camera.position.set(
+      this.camFocus.x + ISO_CAM_OFFSET.x,
+      ISO_CAM_OFFSET.y,
+      this.camFocus.z + ISO_CAM_OFFSET.z,
+    )
+    this.camera.lookAt(this.camFocus.x, 1.2, this.camFocus.z)
   }
 
   // ── Schieten ────────────────────────────────────────────────────────────
@@ -1398,8 +967,10 @@ export class Game {
   }
 
   private shoot() {
-    // Richten door het midden van het scherm (crosshair)
-    this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera)
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    _mouseNdc.x = ((this.mouseScreen.x - rect.left) / rect.width) * 2 - 1
+    _mouseNdc.y = -((this.mouseScreen.y - rect.top) / rect.height) * 2 + 1
+    this.raycaster.setFromCamera(_mouseNdc, this.camera)
     this.raycaster.far = GUN_RANGE
     const hits = this.raycaster.intersectObjects(
       [...this.enemyHitMeshes, ...this.worldColliders],
@@ -1423,8 +994,6 @@ export class Game {
       endPoint = this.raycaster.ray.at(GUN_RANGE * 0.7, new THREE.Vector3())
     }
 
-    // Aim-assist: net naast een vijand mikken telt alsnog, zolang er
-    // niets dichterbij in de baan van het schot zit.
     if (!hitEnemy) {
       const blockDist = firstHit ? firstHit.distance : GUN_RANGE
       const toEnemy = new THREE.Vector3()
@@ -1448,12 +1017,8 @@ export class Game {
 
     this.spawnTracer(muzzlePos, endPoint)
     this.spawnSparks(endPoint, hitEnemy ? 0xff5577 : 0x7dfcff)
-    if (this.muzzleLight) this.muzzleLight.intensity = 22
+    this.muzzleLight.intensity = 22
     this.gunKick = Math.min(this.gunKick + 0.55, 1)
-
-    if (this.playerAnims.shoot) {
-      this.playerAnims.shoot.reset().setEffectiveWeight(1).fadeIn(0.06).play()
-    }
 
     if (hitEnemy) {
       hitEnemy.hp -= 1
@@ -1587,14 +1152,14 @@ export class Game {
   private updateAtmosphere(dt: number, elapsed: number) {
     // Regen valt en wrapt terug omhoog
     const pos = this.rain.geometry.getAttribute('position') as THREE.BufferAttribute
-    const spreadX = (ROAD_WIDTH + 18) / 2
+    const spread = (PLAZA_SIZE + 8) / 2
     for (let i = 0; i < pos.count; i++) {
       let y = pos.getY(i) - 19 * dt
       if (y < 0) y += 20
       pos.setY(i, y)
       let x = pos.getX(i) + 2.4 * dt * Math.sin(i)
-      if (x > spreadX) x -= spreadX * 2
-      if (x < -spreadX) x += spreadX * 2
+      if (x > spread) x -= spread * 2
+      if (x < -spread) x += spread * 2
       pos.setX(i, x)
     }
     pos.needsUpdate = true
@@ -1610,7 +1175,8 @@ export class Game {
     }
 
     this.holoRing.rotation.y = elapsed * 0.5
-    this.holoRing.children[1].rotation.z = elapsed * 0.9
+
+    updateAmbience(this.ambience, dt, elapsed)
   }
 
   // ── Hoofdloop ───────────────────────────────────────────────────────────
@@ -1620,8 +1186,10 @@ export class Game {
     const elapsed = this.clock.elapsedTime
     this.updatePlayer(dt)
     this.updateCamera(dt)
-    this.updateShooting(dt)
-    this.updateEnemies(dt)
+    if (COMBAT_ENABLED) {
+      this.updateShooting(dt)
+      this.updateEnemies(dt)
+    }
     this.updateAtmosphere(dt, elapsed)
     this.composer.render()
     requestAnimationFrame(this.animate)
