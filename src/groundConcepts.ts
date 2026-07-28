@@ -204,45 +204,41 @@ function buildGrateDeep(ctx: GroundBuildContext): THREE.Group {
   root.name = 'grate-deep'
   addCollider(root, ctx)
 
-  const grateTex = makeGrateTexture('fine')
+  const grateTex = makeGrateTexture('heavy')
   const grateMat = new THREE.MeshStandardMaterial({ map: grateTex, color: 0x3a4450, roughness: 0.32, metalness: 0.9 })
   const solidMat = new THREE.MeshStandardMaterial({ color: 0x121018, roughness: 0.78, metalness: 0.25 })
   const boltMat = new THREE.MeshStandardMaterial({ color: 0x5a6068, roughness: 0.35, metalness: 0.92 })
 
-  const tileSize = 1.65
-  const margin = (PLAZA_SIZE - Math.floor(PLAZA_SIZE / tileSize) * tileSize) / 2 + 0.05
-  let row = 0
-  for (let gz = -PLAZA_HALF + margin; gz < PLAZA_HALF - margin; gz += tileSize, row++) {
-    let col = 0
-    for (let gx = -PLAZA_HALF + margin; gx < PLAZA_HALF - margin; gx += tileSize, col++) {
-      const isGrate = (col + row) % 2 === 0
+  const tileSize = 3.2
+  for (let gz = -PLAZA_HALF + 1.6; gz < PLAZA_HALF; gz += tileSize) {
+    for (let gx = -PLAZA_HALF + 1.6; gx < PLAZA_HALF; gx += tileSize) {
+      const isGrate = (Math.floor(gx / tileSize) + Math.floor(gz / tileSize)) % 2 === 0
       const cx = gx + tileSize / 2
       const cz = gz + tileSize / 2
-      const half = tileSize / 2
 
       if (isGrate) {
-        const pit = new THREE.Mesh(new THREE.BoxGeometry(tileSize - 0.06, 0.1, tileSize - 0.06), solidMat)
-        pit.position.set(cx, -0.05, cz)
+        const pit = new THREE.Mesh(new THREE.BoxGeometry(tileSize - 0.08, 0.12, tileSize - 0.08), solidMat)
+        pit.position.set(cx, -0.06, cz)
         root.add(pit)
-        const grate = new THREE.Mesh(new THREE.PlaneGeometry(tileSize - 0.14, tileSize - 0.14), grateMat)
+        const grate = new THREE.Mesh(new THREE.PlaneGeometry(tileSize - 0.2, tileSize - 0.2), grateMat)
         grate.rotation.x = -Math.PI / 2
-        grate.position.set(cx, 0.016, cz)
+        grate.position.set(cx, 0.018, cz)
         grate.receiveShadow = true
         root.add(grate)
-        addBolts(root, cx, cz, half, 0.02, boltMat, 0.72)
+        addBolts(root, cx, cz, tileSize / 2, 0.022, boltMat)
 
-        if (rand(col * 17 + row * 31) > 0.9) {
+        if (rand(gx * 7 + gz) > 0.82) {
           const steam = new THREE.Mesh(
-            new THREE.PlaneGeometry(0.45, 0.85),
-            new THREE.MeshBasicMaterial({ color: 0x8899aa, transparent: true, opacity: 0.1, depthWrite: false, blending: THREE.AdditiveBlending }),
+            new THREE.PlaneGeometry(0.8, 1.4),
+            new THREE.MeshBasicMaterial({ color: 0x8899aa, transparent: true, opacity: 0.12, depthWrite: false, blending: THREE.AdditiveBlending }),
           )
-          steam.position.set(cx, 0.04, cz)
+          steam.position.set(cx, 0.05, cz)
           root.add(steam)
         }
       } else {
-        const slab = new THREE.Mesh(new THREE.PlaneGeometry(tileSize - 0.08, tileSize - 0.08), solidMat)
+        const slab = new THREE.Mesh(new THREE.PlaneGeometry(tileSize - 0.1, tileSize - 0.1), solidMat)
         slab.rotation.x = -Math.PI / 2
-        slab.position.set(cx, 0.003, cz)
+        slab.position.set(cx, 0.004, cz)
         root.add(slab)
       }
     }
