@@ -12,7 +12,7 @@ import {
   type GroundConceptId,
 } from './groundConcepts.js'
 import { buildCitySurround } from './citySurround.js'
-import { buildPlayerCharacter } from './playerCharacter.js'
+import { loadHitemPlayer } from './playerModel.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
 const SPRINT_SPEED = 8.8
@@ -464,21 +464,48 @@ export class Game {
   // ── Speler ──────────────────────────────────────────────────────────────
 
   private buildIsoPlayer() {
-    const rig = buildPlayerCharacter(NEON_CYAN, NEON_PINK, NEON_ORANGE)
-    this.player = rig.root
-    this.playerBody = rig.body
-    this.legL = rig.legL
-    this.legR = rig.legR
-    this.gun = rig.gun
-    this.gunHolder = rig.gunHolder
-    this.muzzle = rig.muzzle
-    this.muzzleLight = rig.muzzleLight
-    this.playerVisorMat = rig.visorMat
-    this.gun.scale.setScalar(1.12)
-    this.flickerMats.push({ mat: this.playerVisorMat, base: 1.4, t: Math.random() * 2 })
+    this.player = new THREE.Group()
+    this.playerBody = new THREE.Group()
+    this.legL = new THREE.Group()
+    this.legR = new THREE.Group()
+    this.gun = new THREE.Group()
+    this.gunHolder = new THREE.Group()
+    this.muzzle = new THREE.Object3D()
+    this.muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
+    this.playerVisorMat = new THREE.MeshStandardMaterial({ color: 0x00f6ff, emissive: 0x00f6ff, emissiveIntensity: 1 })
+
+    this.player.add(this.playerBody)
     this.player.position.set(0, 0, 10)
     this.player.visible = false
     this.scene.add(this.player)
+
+    void this.loadHitemPlayerModel()
+  }
+
+  private async loadHitemPlayerModel() {
+    try {
+      const rig = await loadHitemPlayer()
+      this.player.remove(this.playerBody)
+      this.player = rig.root
+      this.playerBody = rig.body
+      this.legL = rig.legL
+      this.legR = rig.legR
+      this.gun = rig.gun
+      this.gunHolder = rig.gunHolder
+      this.muzzle = rig.muzzle
+      this.muzzleLight = rig.muzzleLight
+      this.playerVisorMat = rig.visorMat
+
+      this.player.position.set(0, 0, 10)
+      this.player.visible = !this.playing ? false : true
+      this.scene.add(this.player)
+
+      if (this.playerVisorMat.emissiveIntensity > 0) {
+        this.flickerMats.push({ mat: this.playerVisorMat, base: this.playerVisorMat.emissiveIntensity, t: Math.random() * 2 })
+      }
+    } catch (err) {
+      console.error('Failed to load Hitem3D player model', err)
+    }
   }
 
   // ── Vijanden ────────────────────────────────────────────────────────────
