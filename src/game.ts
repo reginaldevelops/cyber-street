@@ -13,7 +13,6 @@ import {
 } from './groundConcepts.js'
 import { buildCitySurround } from './citySurround.js'
 import { buildPlayerCharacter } from './playerCharacter.js'
-import { mountStartLogo } from './startLogo.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
 const SPRINT_SPEED = 8.8
@@ -215,11 +214,9 @@ export class Game {
 
   private setupStartScreen() {
     const playBtn = document.getElementById('play-btn')
-    const logoEl = document.getElementById('title-logo') as HTMLImageElement | null
     if (!playBtn || !this.startScreenEl) return
 
     document.body.classList.add('menu-mode')
-    if (logoEl) mountStartLogo(logoEl)
 
     const unlockMenuMusic = () => {
       if (this.menuMusicPlaying || this.playing) return

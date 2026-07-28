@@ -208,12 +208,9 @@
         z-index: 1;
       }
       #title-logo {
-        width: min(820px, 88vw);
+        width: min(480px, 72vw);
         height: auto;
-        filter:
-          drop-shadow(0 8px 0 rgba(0, 0, 0, 0.75))
-          drop-shadow(0 0 28px rgba(122, 224, 32, 0.35))
-          drop-shadow(0 0 48px rgba(255, 212, 0, 0.2));
+        filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.65));
         animation: title-float 3.5s ease-in-out infinite;
         pointer-events: none;
         user-select: none;
@@ -291,7 +288,7 @@
     </div>
     <div id="start-screen">
       <div id="start-ui">
-        <img id="title-logo" alt="Cyber Street" />
+        <img id="title-logo" src="/images/cyber-alley-logo.png" alt="Cyber Alley" />
         <button id="play-btn" type="button">PLAY</button>
         <div id="start-audio-hint" class="hidden">Klik voor muziek</div>
       </div>
