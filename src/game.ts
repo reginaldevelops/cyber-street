@@ -13,6 +13,7 @@ import {
 } from './groundConcepts.js'
 import { buildCitySurround } from './citySurround.js'
 import { buildPlayerCharacter } from './playerCharacter.js'
+import { mountStartLogo } from './startLogo.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
 const SPRINT_SPEED = 8.8
@@ -149,6 +150,8 @@ export class Game {
   private startScreenEl: HTMLElement | null
   private audioHintEl: HTMLElement | null
 
+  private menuCamAngle = 0
+
   constructor(container: HTMLElement, hintEl: HTMLElement) {
     this.container = container
     this.hintEl = hintEl
@@ -212,7 +215,11 @@ export class Game {
 
   private setupStartScreen() {
     const playBtn = document.getElementById('play-btn')
+    const logoEl = document.getElementById('title-logo') as HTMLImageElement | null
     if (!playBtn || !this.startScreenEl) return
+
+    document.body.classList.add('menu-mode')
+    if (logoEl) mountStartLogo(logoEl)
 
     const unlockMenuMusic = () => {
       if (this.menuMusicPlaying || this.playing) return
@@ -248,6 +255,8 @@ export class Game {
     this.menuMusicPlaying = false
 
     this.startScreenEl?.classList.add('hidden')
+    document.body.classList.remove('menu-mode')
+    this.player.visible = true
     this.hintEl.classList.remove('hidden')
     this.conceptPanelEl?.classList.remove('hidden')
   }
@@ -525,6 +534,7 @@ export class Game {
     this.gun.scale.setScalar(1.12)
     this.flickerMats.push({ mat: this.playerVisorMat, base: 1.4, t: Math.random() * 2 })
     this.player.position.set(0, 0, 10)
+    this.player.visible = false
     this.scene.add(this.player)
   }
 
@@ -870,6 +880,24 @@ export class Game {
   }
 
   private updateCamera(dt: number) {
+    if (!this.playing) {
+      this.menuCamAngle += dt * 0.1
+      const orbit = 10
+      this.camFocus.set(
+        Math.sin(this.menuCamAngle) * orbit,
+        0,
+        Math.cos(this.menuCamAngle) * orbit,
+      )
+      const pull = 1.22
+      this.camera.position.set(
+        this.camFocus.x + ISO_CAM_OFFSET.x * pull,
+        ISO_CAM_OFFSET.y * pull,
+        this.camFocus.z + ISO_CAM_OFFSET.z * pull,
+      )
+      this.camera.lookAt(0, 1.4, 0)
+      return
+    }
+
     this.camFocus.x = THREE.MathUtils.damp(this.camFocus.x, this.player.position.x, ISO_FOLLOW, dt)
     this.camFocus.z = THREE.MathUtils.damp(this.camFocus.z, this.player.position.z, ISO_FOLLOW, dt)
 
