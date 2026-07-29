@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { buildLot, pickBuildingKind } from './cityBuildings.js'
+import { buildLot, civicKindAt, pickBuildingKind } from './cityBuildings.js'
 import {
   addLanternString,
   addPowerLines,
@@ -201,7 +201,7 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
 
       addSidewalkTiles(root, cx, cz, w, d)
 
-      const kind = pickBuildingKind(gx, gz, seed)
+      const kind = civicKindAt(gx, gz) ?? pickBuildingKind(gx, gz, seed)
       if (kind !== 'park') {
         const pad = new THREE.Mesh(
           new THREE.PlaneGeometry(w, d),
