@@ -146,109 +146,181 @@ function buildMetroCar(
   g.position.set(x, y, z)
   g.rotation.y = yaw
 
-  const bodyMat = matPaint(0x2c3444)
-  const silver = matMetal(0xc4cad2, 0.22, 0.9)
-  const dark = matMetal(0x1a1c22, 0.4, 0.7)
-  const windowMat = glow(0x66ccee, 0.55)
+  const bodyMat = matPaint(0x2a3240)
+  const silver = matMetal(0xd0d6de, 0.18, 0.94)
+  const dark = matMetal(0x14161c, 0.38, 0.75)
+  const accent = glow(METRO_BLUE, 0.95)
+  const windowMat = glow(0x7ad4f0, 0.65)
   windowMat.transparent = true
-  windowMat.opacity = 0.8
+  windowMat.opacity = 0.82
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.15, 7.2), bodyMat)
-  body.position.y = 1.28
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.45, 2.2, 7.4), bodyMat)
+  body.position.y = 1.3
   body.castShadow = true
   g.add(body)
 
-  // Rounded nose
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.8, 0.7), bodyMat)
-  nose.position.set(0, 1.2, -3.7)
+  // Rounded nose + rear cap
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(2.25, 1.85, 0.75), bodyMat)
+  nose.position.set(0, 1.22, -3.85)
   g.add(nose)
+  const rear = new THREE.Mesh(new THREE.BoxGeometry(2.25, 1.85, 0.55), bodyMat)
+  rear.position.set(0, 1.22, 3.85)
+  g.add(rear)
 
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.16, 7.1), silver)
-  roof.position.y = 2.4
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.14, 7.3), silver)
+  roof.position.y = 2.45
   g.add(roof)
 
-  // Accent stripe
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.42, 0.22, 7.25), glow(METRO_BLUE, 0.85))
-  stripe.position.y = 1.95
+  // Dual accent stripes
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.48, 0.18, 7.45), accent)
+  stripe.position.y = 2.0
   g.add(stripe)
-  ctx.flickerMats.push({ mat: stripe.material as THREE.MeshStandardMaterial, base: 0.85, t: 0.8 })
+  ctx.flickerMats.push({ mat: accent, base: 0.95, t: 0.8 })
+  const stripeLow = new THREE.Mesh(new THREE.BoxGeometry(2.48, 0.1, 7.45), glow(METRO_PINK, 0.55))
+  stripeLow.position.y = 0.72
+  g.add(stripeLow)
 
   // Lower skirt
-  const skirt = new THREE.Mesh(new THREE.BoxGeometry(2.45, 0.25, 7.0), dark)
-  skirt.position.y = 0.45
+  const skirt = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.28, 7.15), dark)
+  skirt.position.y = 0.42
   g.add(skirt)
 
   // Side windows + door panels
   for (let i = 0; i < 5; i++) {
-    const wz = -2.4 + i * 1.2
+    const wz = -2.5 + i * 1.25
     if (i === 1 || i === 3) {
-      // Door
-      const door = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.7, 0.85), matMetal(0x3a4050))
-      door.position.set(1.22, 1.15, wz)
+      const door = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.75, 0.9), matMetal(0x3a4050))
+      door.position.set(1.25, 1.18, wz)
       g.add(door)
-      const doorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.9), windowMat)
-      doorGlass.position.set(1.27, 1.45, wz)
+      const doorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.95), windowMat)
+      doorGlass.position.set(1.3, 1.48, wz)
       doorGlass.rotation.y = Math.PI / 2
       g.add(doorGlass)
       const door2 = door.clone()
-      door2.position.x = -1.22
+      door2.position.x = -1.25
       g.add(door2)
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.2), silver)
+      handle.position.set(1.32, 1.05, wz + 0.25)
+      g.add(handle)
     } else {
-      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.85), windowMat)
-      win.position.set(1.21, 1.5, wz)
+      const win = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.88), windowMat)
+      win.position.set(1.24, 1.52, wz)
       win.rotation.y = Math.PI / 2
       g.add(win)
       const win2 = win.clone()
-      win2.position.x = -1.21
+      win2.position.x = -1.24
       win2.rotation.y = -Math.PI / 2
       g.add(win2)
     }
   }
 
   // Front windshield + headlights
-  const front = new THREE.Mesh(new THREE.PlaneGeometry(1.85, 1.05), windowMat)
-  front.position.set(0, 1.55, -4.06)
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 1.1), windowMat)
+  front.position.set(0, 1.58, -4.22)
   g.add(front)
   for (const side of [-1, 1] as const) {
-    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.08, 10), glow(NEON_YELLOW, 1.1))
+    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.08, 10), glow(NEON_YELLOW, 1.2))
     lamp.rotation.x = Math.PI / 2
-    lamp.position.set(side * 0.7, 0.85, -4.08)
+    lamp.position.set(side * 0.72, 0.88, -4.24)
     g.add(lamp)
+    const lampRing = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.03, 6, 12), silver)
+    lampRing.rotation.y = Math.PI / 2
+    lampRing.position.set(side * 0.72, 0.88, -4.2)
+    g.add(lampRing)
   }
 
-  addSign(g, ctx, 'M', METRO_BLUE, 0, 2.15, -4.08, 0, 0.55, 0.55, 56)
+  addSign(g, ctx, 'M', METRO_BLUE, 0, 2.2, -4.24, 0, 0.55, 0.55, 56)
 
-  // Pantograph on roof
-  const pantBase = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.08, 0.5), dark)
-  pantBase.position.set(0, 2.52, 0.8)
-  g.add(pantBase)
-  const pantArm = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.55, 0.06), dark)
-  pantArm.position.set(0, 2.8, 0.8)
-  pantArm.rotation.z = 0.35
-  g.add(pantArm)
-  const pantBar = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.05, 0.08), silver)
-  pantBar.position.set(0, 3.05, 0.8)
-  g.add(pantBar)
+  // Dual pantographs
+  for (const pz of [-1.2, 1.4] as const) {
+    const pantBase = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.08, 0.5), dark)
+    pantBase.position.set(0, 2.56, pz)
+    g.add(pantBase)
+    const pantArm = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.55, 0.06), dark)
+    pantArm.position.set(0, 2.84, pz)
+    pantArm.rotation.z = 0.35
+    g.add(pantArm)
+    const pantBar = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.05, 0.08), silver)
+    pantBar.position.set(0, 3.1, pz)
+    g.add(pantBar)
+  }
 
-  for (const [wx, wz] of [[-0.85, -2.5], [0.85, -2.5], [-0.85, 2.5], [0.85, 2.5]] as const) {
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.2, 12), matMetal(0x121216))
+  for (const [wx, wz] of [
+    [-0.88, -2.6],
+    [0.88, -2.6],
+    [-0.88, -0.4],
+    [0.88, -0.4],
+    [-0.88, 2.6],
+    [0.88, 2.6],
+  ] as const) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.22, 12), matMetal(0x121216))
     wheel.rotation.z = Math.PI / 2
     wheel.position.set(wx, 0.28, wz)
     g.add(wheel)
   }
 
-  const light = new THREE.PointLight(NEON_CYAN, 0.45, 11, 2)
-  light.position.set(0, 2.1, 0)
+  const light = new THREE.PointLight(NEON_CYAN, 0.5, 12, 2)
+  light.position.set(0, 2.15, 0)
   g.add(light)
-  const headLight = new THREE.PointLight(NEON_YELLOW, 0.55, 14, 2)
-  headLight.position.set(0, 1.0, -4.2)
+  const headLight = new THREE.PointLight(NEON_YELLOW, 0.65, 16, 2)
+  headLight.position.set(0, 1.0, -4.35)
   g.add(headLight)
   root.add(g)
 }
 
+/** Chunked 3D metro “M” that reads clearly in isometric view. */
+function buildMetroLetterM(parent: THREE.Group, ctx: PlazaSubwayContext, y: number, z: number) {
+  const m = new THREE.Group()
+  m.position.set(0, y, z)
+
+  const face = glow(METRO_PINK, 1.15)
+  const core = glow(METRO_BLUE, 0.95)
+  const chrome = matMetal(0xd8dee6, 0.18, 0.95)
+  ctx.flickerMats.push({ mat: face, base: 1.15, t: 0.5 })
+  ctx.flickerMats.push({ mat: core, base: 0.95, t: 1.4 })
+
+  // Outer chrome shell + neon face — classic station monogram
+  const strokes: [number, number, number, number, number, number][] = [
+    // left upright
+    [-0.95, 0, 0.42, 2.35, 0.28, 0],
+    // right upright
+    [0.95, 0, 0.42, 2.35, 0.28, 0],
+    // left diagonal
+    [-0.48, 0.15, 0.36, 1.55, 0.26, 0.52],
+    // right diagonal
+    [0.48, 0.15, 0.36, 1.55, 0.26, -0.52],
+  ]
+
+  for (const [lx, ly, w, h, d, rotZ] of strokes) {
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(w + 0.12, h + 0.12, d + 0.08), chrome)
+    shell.position.set(lx, ly, -0.02)
+    shell.rotation.z = rotZ
+    shell.castShadow = true
+    m.add(shell)
+
+    const neon = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), face)
+    neon.position.set(lx, ly, 0.08)
+    neon.rotation.z = rotZ
+    m.add(neon)
+
+    const inner = new THREE.Mesh(new THREE.BoxGeometry(w * 0.55, h * 0.72, d * 0.45), core)
+    inner.position.set(lx, ly, 0.14)
+    inner.rotation.z = rotZ
+    m.add(inner)
+  }
+
+  // Center peak diamond
+  const peak = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.45, 0.22), face)
+  peak.position.set(0, 0.55, 0.12)
+  peak.rotation.z = Math.PI / 4
+  m.add(peak)
+
+  parent.add(m)
+}
+
 /**
- * Iconic arched metro gate — matches the yellow sketch:
- * big semi-circular canopy over the tracks with a neon M.
+ * High-end arched metro pavilion — deep canopy over the tracks with a bold M,
+ * matching the yellow sketch but with premium steel / neon / glass detailing.
  */
 function buildArchedMetroGate(
   root: THREE.Group,
@@ -258,116 +330,226 @@ function buildArchedMetroGate(
   z: number,
   yaw: number,
   scale = 1,
+  deep = true,
 ) {
   const g = new THREE.Group()
   g.position.set(x, y, z)
   g.rotation.y = yaw
   g.scale.setScalar(scale)
 
-  const steel = matMetal(0x8a929c, 0.28, 0.88)
-  const dark = matPaint(0x1e222a)
-  const neon = glow(METRO_BLUE, 1.05)
-  const pink = glow(METRO_PINK, 0.9)
+  const steel = matMetal(0x9aa3ae, 0.22, 0.92)
+  const chrome = matMetal(0xc8d0da, 0.16, 0.96)
+  const dark = matPaint(0x161a22)
+  const slate = matPaint(0x2a303a)
+  const neon = glow(METRO_BLUE, 1.15)
+  const pink = glow(METRO_PINK, 1.0)
+  const cyan = glow(NEON_CYAN, 0.85)
+  ctx.flickerMats.push({ mat: neon, base: 1.15, t: 0.35 })
+  ctx.flickerMats.push({ mat: pink, base: 1.0, t: 1.6 })
+  ctx.flickerMats.push({ mat: cyan, base: 0.85, t: 0.9 })
 
-  // Twin legs
-  for (const side of [-1, 1] as const) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.55, 4.2, 0.7), steel)
-    leg.position.set(side * 3.4, 2.1, 0)
-    leg.castShadow = true
-    g.add(leg)
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0x88ccee,
+    emissive: 0x224466,
+    emissiveIntensity: 0.35,
+    roughness: 0.12,
+    metalness: 0.35,
+    transparent: true,
+    opacity: 0.38,
+    side: THREE.DoubleSide,
+  })
 
-    // Leg neon edge
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.08, 4.0, 0.12), neon)
-    edge.position.set(side * 3.65, 2.1, 0.35)
-    g.add(edge)
+  const archR = 4.15
+  const archBaseY = 3.55
+  const segments = 18
+  // Depth ribs so the arch reads as a pavilion over the train (sketch)
+  const ribZs = deep ? [-2.4, -1.2, 0, 1.2, 2.4] : [0]
 
-    // Base plinth
-    const plinth = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.35, 1.1), dark)
-    plinth.position.set(side * 3.4, 0.18, 0)
-    g.add(plinth)
+  // Twin structural legs + plinths for each rib
+  for (const rz of ribZs) {
+    for (const side of [-1, 1] as const) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.48, 3.7, 0.55), steel)
+      leg.position.set(side * (archR - 0.05), 1.85, rz)
+      leg.castShadow = true
+      g.add(leg)
+
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(0.08, 3.5, 0.1), neon)
+      edge.position.set(side * (archR + 0.22), 1.85, rz + 0.22)
+      g.add(edge)
+
+      const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.32, 0.85), dark)
+      plinth.position.set(side * (archR - 0.05), 0.16, rz)
+      g.add(plinth)
+
+      const footGlow = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.06, 0.55), cyan)
+      footGlow.position.set(side * (archR - 0.05), 0.34, rz)
+      g.add(footGlow)
+    }
   }
-  ctx.flickerMats.push({ mat: neon, base: 1.05, t: 0.4 })
 
-  // Arch — segmented torus / boxes along a semicircle
-  const archR = 3.55
-  const archY = 4.2
-  const segments = 14
-  for (let i = 0; i <= segments; i++) {
-    const t = i / segments
-    const ang = Math.PI * t // 0 → π
-    const ax = Math.cos(ang) * archR
-    const ay = archY + Math.sin(ang) * archR * 0.95
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.45, 0.85), steel)
-    beam.position.set(ax, ay, 0)
-    beam.rotation.z = ang - Math.PI / 2
-    beam.castShadow = true
-    g.add(beam)
+  // Arch ribs + neon face rim on the front rib
+  for (const rz of ribZs) {
+    const isFront = rz === ribZs[ribZs.length - 1]
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments
+      const ang = Math.PI * t
+      const ax = Math.cos(ang) * archR
+      const ay = archBaseY + Math.sin(ang) * archR * 0.92
 
-    // Neon rim on arch face
-    const rim = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.12, 0.14), neon)
-    rim.position.set(ax, ay + 0.28, 0.4)
-    rim.rotation.z = ang - Math.PI / 2
-    g.add(rim)
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.38, 0.52), steel)
+      beam.position.set(ax, ay, rz)
+      beam.rotation.z = ang - Math.PI / 2
+      beam.castShadow = true
+      g.add(beam)
+
+      if (isFront) {
+        const rim = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.11, 0.12), neon)
+        rim.position.set(ax * 1.02, ay + 0.26, rz + 0.32)
+        rim.rotation.z = ang - Math.PI / 2
+        g.add(rim)
+
+        // Decorative scallop bosses every few segments
+        if (i % 3 === 0) {
+          const boss = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.18), chrome)
+          boss.position.set(ax * 1.04, ay + 0.38, rz + 0.38)
+          g.add(boss)
+          const jewel = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.1), pink)
+          jewel.position.set(ax * 1.04, ay + 0.38, rz + 0.48)
+          g.add(jewel)
+        }
+      }
+    }
   }
 
-  // Inner arch fill (dark canopy ceiling)
-  for (let i = 1; i < segments; i++) {
+  // Glass canopy panels between ribs
+  if (deep) {
+    for (let r = 0; r < ribZs.length - 1; r++) {
+      const z0 = ribZs[r]
+      const z1 = ribZs[r + 1]
+      const zm = (z0 + z1) / 2
+      const depth = Math.abs(z1 - z0) - 0.08
+      for (let i = 1; i < segments; i++) {
+        const t = i / segments
+        const ang = Math.PI * t
+        const ax = Math.cos(ang) * (archR - 0.35)
+        const ay = archBaseY + Math.sin(ang) * (archR - 0.35) * 0.92
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.06, depth), glass)
+        panel.position.set(ax, ay - 0.12, zm)
+        panel.rotation.z = ang - Math.PI / 2
+        g.add(panel)
+      }
+    }
+  }
+
+  // Inner dark soffit
+  for (let i = 2; i < segments - 1; i++) {
     const t = i / segments
     const ang = Math.PI * t
-    const ax = Math.cos(ang) * (archR - 0.55)
-    const ay = archY + Math.sin(ang) * (archR - 0.55) * 0.95
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.2, 0.7), dark)
-    panel.position.set(ax, ay - 0.15, 0)
+    const ax = Math.cos(ang) * (archR - 0.85)
+    const ay = archBaseY + Math.sin(ang) * (archR - 0.85) * 0.92
+    const panel = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 0.14, deep ? 4.6 : 0.7),
+      slate,
+    )
+    panel.position.set(ax, ay - 0.22, 0)
     panel.rotation.z = ang - Math.PI / 2
     g.add(panel)
   }
 
-  // Big suspended M medallion
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.35, 0.18, 28), glow(METRO_BLUE, 0.55))
+  // Apex finial
+  const finial = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.7, 0.45), chrome)
+  finial.position.set(0, archBaseY + archR * 0.92 + 0.55, deep ? 2.4 : 0)
+  g.add(finial)
+  const finialGlow = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.35, 0.22), pink)
+  finialGlow.position.copy(finial.position)
+  finialGlow.position.y += 0.15
+  finialGlow.position.z += 0.12
+  g.add(finialGlow)
+
+  // Bold suspended M in the arch mouth (sketch hero)
+  const medY = archBaseY + archR * 0.42
+  const medZ = deep ? 2.55 : 0.2
+
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(1.55, 1.55, 0.16, 32), glow(METRO_BLUE, 0.45))
   disc.rotation.x = Math.PI / 2
-  disc.position.set(0, 5.6, 0.15)
+  disc.position.set(0, medY, medZ - 0.08)
   g.add(disc)
-  ctx.flickerMats.push({ mat: disc.material as THREE.MeshStandardMaterial, base: 0.55, t: 1.2 })
+  ctx.flickerMats.push({ mat: disc.material as THREE.MeshStandardMaterial, base: 0.45, t: 1.1 })
 
-  const discRing = new THREE.Mesh(new THREE.TorusGeometry(1.4, 0.08, 8, 28), pink)
-  discRing.position.set(0, 5.6, 0.15)
+  const discRing = new THREE.Mesh(new THREE.TorusGeometry(1.62, 0.07, 8, 32), pink)
+  discRing.position.set(0, medY, medZ - 0.08)
   g.add(discRing)
-  ctx.flickerMats.push({ mat: pink, base: 0.9, t: 1.8 })
 
-  addSign(g, ctx, 'M', METRO_PINK, 0, 5.6, 0.28, 0, 1.6, 1.6, 90)
+  const discRing2 = new THREE.Mesh(new THREE.TorusGeometry(1.78, 0.045, 8, 32), neon)
+  discRing2.position.set(0, medY, medZ - 0.08)
+  g.add(discRing2)
 
-  // METRO wordmark below medallion
-  addSign(g, ctx, 'METRO', NEON_CYAN, 0, 4.35, 0.45, 0, 3.4, 0.55, 44)
+  buildMetroLetterM(g, ctx, medY, medZ + 0.05)
 
-  // Cross-brace under arch
-  const brace = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.12, 0.2), steel)
-  brace.position.set(0, 3.9, -0.15)
-  g.add(brace)
-
-  // Hanging platform lights
-  for (const side of [-1.5, 0, 1.5]) {
-    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.12, 0.35), glow(NEON_CYAN, 0.7))
-    lamp.position.set(side, 4.0, 0.2)
-    g.add(lamp)
-    const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.35, 4), matPaint(0x222228))
-    cord.position.set(side, 4.2, 0.2)
-    g.add(cord)
+  // Hanging cables from apex to medallion
+  for (const side of [-0.55, 0.55] as const) {
+    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.6, 5), matMetal(0x555a62))
+    cable.position.set(side * 0.4, medY + 1.05, medZ - 0.15)
+    cable.rotation.z = side * 0.28
+    g.add(cable)
   }
 
-  const light = new THREE.PointLight(METRO_BLUE, 0.85, 18, 2)
-  light.position.set(0, 5.0, 1.5)
+  addSign(g, ctx, 'METRO', NEON_CYAN, 0, medY - 1.55, medZ + 0.15, 0, 3.6, 0.5, 46)
+
+  // Tie beams under canopy
+  for (const bz of deep ? [-1.8, 0, 1.8] : [0]) {
+    const brace = new THREE.Mesh(new THREE.BoxGeometry(archR * 2 - 0.4, 0.1, 0.16), steel)
+    brace.position.set(0, 3.35, bz)
+    g.add(brace)
+  }
+
+  // Linear hanging platform lights
+  const lampZs = deep ? [-1.8, -0.6, 0.6, 1.8] : [0]
+  for (const lz of lampZs) {
+    for (const lx of [-1.8, 0, 1.8]) {
+      const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.45, 4), matPaint(0x222228))
+      cord.position.set(lx, 3.55, lz)
+      g.add(cord)
+      const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 0.28), cyan)
+      lamp.position.set(lx, 3.3, lz)
+      g.add(lamp)
+    }
+  }
+
+  // Approach steps + branded pavement strip (front only when deep)
+  if (deep) {
+    for (let s = 0; s < 3; s++) {
+      const step = new THREE.Mesh(new THREE.BoxGeometry(7.2 - s * 0.35, 0.14, 0.55), slate)
+      step.position.set(0, 0.08 + s * 0.14, 3.15 + s * 0.5)
+      step.receiveShadow = true
+      g.add(step)
+    }
+    const apron = new THREE.Mesh(new THREE.BoxGeometry(8.2, 0.08, 2.4), dark)
+    apron.position.set(0, 0.04, 4.4)
+    apron.receiveShadow = true
+    g.add(apron)
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.04, 0.18), neon)
+    stripe.position.set(0, 0.1, 4.4)
+    g.add(stripe)
+  }
+
+  const light = new THREE.PointLight(METRO_BLUE, 1.05, 22, 2)
+  light.position.set(0, medY, medZ + 1.2)
   g.add(light)
-  const wash = new THREE.PointLight(NEON_CYAN, 0.4, 12, 2)
-  wash.position.set(0, 3.5, -1)
+  const wash = new THREE.PointLight(NEON_CYAN, 0.55, 14, 2)
+  wash.position.set(0, 3.2, deep ? -1.5 : -1)
   g.add(wash)
+  const pinkWash = new THREE.PointLight(METRO_PINK, 0.35, 10, 2)
+  pinkWash.position.set(0, medY, medZ + 0.8)
+  g.add(pinkWash)
 
   if (ctx.colliders) {
     for (const side of [-1, 1] as const) {
       const col = new THREE.Mesh(
-        new THREE.BoxGeometry(0.7, 4.2, 0.9),
+        new THREE.BoxGeometry(0.7, 3.8, deep ? 5.2 : 0.9),
         new THREE.MeshBasicMaterial({ visible: false }),
       )
-      col.position.set(side * 3.4, 2.1, 0)
+      col.position.set(side * (archR - 0.05), 1.9, 0)
       g.add(col)
       ctx.colliders.push(col)
     }
@@ -391,44 +573,73 @@ function buildPlatform(
 
   const concrete = matPaint(0x3a3e48)
   const dark = matPaint(0x22262e)
-  const yellow = glow(NEON_YELLOW, 0.7)
+  const steel = matMetal(0x6a727c, 0.35, 0.8)
+  const yellow = glow(NEON_YELLOW, 0.75)
+  const cyan = glow(NEON_CYAN, 0.65)
 
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(6.5, 0.4, length), concrete)
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.42, length), concrete)
   deck.position.y = 0.55
   deck.receiveShadow = true
   deck.castShadow = true
   g.add(deck)
 
+  // Raised curb toward tracks
+  const curb = new THREE.Mesh(new THREE.BoxGeometry(7.0, 0.12, 0.35), steel)
+  curb.position.set(0, 0.8, length / 2 - 0.12)
+  g.add(curb)
+
   // Safety edge
-  const edge = new THREE.Mesh(new THREE.BoxGeometry(6.3, 0.05, 0.2), yellow)
-  edge.position.set(0, 0.78, length / 2 - 0.15)
+  const edge = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.05, 0.18), yellow)
+  edge.position.set(0, 0.88, length / 2 - 0.12)
   g.add(edge)
-  ctx.flickerMats.push({ mat: yellow, base: 0.7, t: 2 })
+  ctx.flickerMats.push({ mat: yellow, base: 0.75, t: 2 })
 
   // Tactile tiles strip
-  for (let i = 0; i < 8; i++) {
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.03, 0.55), dark)
-    strip.position.set(-2.4 + i * 0.7, 0.77, length / 2 - 0.7)
+  for (let i = 0; i < 10; i++) {
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.5), dark)
+    strip.position.set(-2.7 + i * 0.6, 0.78, length / 2 - 0.75)
     g.add(strip)
   }
 
+  // Column lights along platform edge
+  for (let i = 0; i < 4; i++) {
+    const pz = -length * 0.35 + i * (length * 0.22)
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 2.4, 8), steel)
+    pole.position.set(2.9, 1.95, pz)
+    g.add(pole)
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.1, 0.35), cyan)
+    cap.position.set(2.9, 3.2, pz)
+    g.add(cap)
+  }
+  ctx.flickerMats.push({ mat: cyan, base: 0.65, t: 1.3 })
+
   // Benches
-  for (const bz of [-length * 0.25, length * 0.1]) {
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.1, 0.5), matPaint(0x2a2834))
-    seat.position.set(-1.8, 0.95, bz)
+  for (const bz of [-length * 0.28, length * 0.08]) {
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.1, 0.52), matPaint(0x2a2834))
+    seat.position.set(-2.0, 0.98, bz)
     g.add(seat)
-    const back = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.55, 0.08), matPaint(0x2a2834))
-    back.position.set(-1.8, 1.25, bz - 0.22)
+    const back = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.55, 0.08), matPaint(0x2a2834))
+    back.position.set(-2.0, 1.28, bz - 0.24)
     g.add(back)
+    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.35, 0.4), steel)
+    legL.position.set(-2.8, 0.78, bz)
+    g.add(legL)
+    const legR = legL.clone()
+    legR.position.x = -1.2
+    g.add(legR)
   }
 
-  // Info board
-  addSign(g, ctx, '→ DOWNTOWN', NEON_CYAN, 2.2, 2.2, -length * 0.2, -Math.PI / 2, 2.4, 0.4)
-  addSign(g, ctx, 'NEXT TRAIN 2 MIN', NEON_YELLOW, 2.2, 1.7, -length * 0.2, -Math.PI / 2, 2.6, 0.35)
+  // Info board + frame
+  const board = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.4, 2.8), matPaint(0x12151c))
+  board.position.set(2.55, 2.0, -length * 0.2)
+  g.add(board)
+  addSign(g, ctx, '→ DOWNTOWN', NEON_CYAN, 2.62, 2.35, -length * 0.2, -Math.PI / 2, 2.4, 0.4)
+  addSign(g, ctx, 'NEXT TRAIN 2 MIN', NEON_YELLOW, 2.62, 1.85, -length * 0.2, -Math.PI / 2, 2.6, 0.35)
+  addSign(g, ctx, 'PLAZA STATION', METRO_PINK, 2.62, 1.4, -length * 0.2, -Math.PI / 2, 2.5, 0.32)
 
   if (ctx.colliders) {
     const col = new THREE.Mesh(
-      new THREE.BoxGeometry(6.5, 1.2, length),
+      new THREE.BoxGeometry(7.2, 1.2, length),
       new THREE.MeshBasicMaterial({ visible: false }),
     )
     col.position.y = 0.6
@@ -560,19 +771,19 @@ function addTunnelPortal(root: THREE.Group, ctx: PlazaSubwayContext, at: THREE.V
 }
 
 /**
- * High-end metro: arched M gate over platform, rails diving west underground toward diner.
+ * High-end metro: deep arched M pavilion over platform, rails diving west underground toward diner.
  */
 export function buildPlazaSubway(ctx: PlazaSubwayContext): THREE.Group {
   const root = new THREE.Group()
   root.name = 'plaza-subway'
 
-  // Hero arched gate at SE station (behind fountain) — matches the sketch
+  // Hero deep pavilion at SE station (behind fountain) — sketch: big arch + M over the train
   const stationYaw = Math.PI / 4
-  buildArchedMetroGate(root, ctx, SUBWAY_X - 0.5, 0, SUBWAY_Z - 0.5, stationYaw, 1.05)
-  buildPlatform(root, ctx, SUBWAY_X - 1.2, SUBWAY_Z + 0.8, stationYaw, 11)
+  buildArchedMetroGate(root, ctx, SUBWAY_X - 0.3, 0, SUBWAY_Z - 0.3, stationYaw, 1.08, true)
+  buildPlatform(root, ctx, SUBWAY_X - 1.4, SUBWAY_Z + 1.0, stationYaw, 12)
 
-  // Secondary smaller arch at the underground portal (west loop)
-  buildArchedMetroGate(root, ctx, -16.0, -0.4, 2.5, Math.PI * 0.95, 0.72)
+  // Secondary slim arch at the underground portal (west loop)
+  buildArchedMetroGate(root, ctx, -16.0, -0.4, 2.5, Math.PI * 0.95, 0.68, false)
 
   const path = buildTrackPath()
   addRails(root, path, 1.15)
@@ -582,8 +793,8 @@ export function buildPlazaSubway(ctx: PlazaSubwayContext): THREE.Group {
   const portalToward = new THREE.Vector3(-15.2, -1.6, -5.5)
   addTunnelPortal(root, ctx, portalAt, portalToward)
 
-  // Train under the main arch
-  buildMetroCar(root, 13.0, 0.85, 13.5, stationYaw, ctx)
+  // Train parked under the main pavilion
+  buildMetroCar(root, 13.2, 0.85, 13.3, stationYaw, ctx)
 
   // Train entering west portal under the smaller arch
   buildMetroCar(root, -15.9, -0.4, 3.8, Math.PI * 0.95, ctx)
