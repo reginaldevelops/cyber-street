@@ -1,11 +1,17 @@
 import * as THREE from 'three'
-import { buildModernTower } from './modernBuilding.js'
+import { buildLot, pickBuildingKind } from './cityBuildings.js'
+import {
+  addLanternString,
+  addPowerLines,
+  addSidewalkTiles,
+  scatterStreetProps,
+} from './cityProps.js'
 import { PLAZA_EXCLUDE } from './worldConfig.js'
 
 const BLOCK = 13
 const ROAD = 5
 const PITCH = BLOCK + ROAD
-const GRID_SPAN = 4 // blocks outward from center per axis
+const GRID_SPAN = 4
 const SURFACE_Y = 0.006
 const MARK_Y = 0.018
 
@@ -34,16 +40,8 @@ function makeAsphaltTexture(): THREE.CanvasTexture {
   g.fillStyle = '#1c1c22'
   g.fillRect(0, 0, 512, 512)
   for (let i = 0; i < 8000; i++) {
-    const x = Math.random() * 512
-    const y = Math.random() * 512
-    const a = 0.04 + Math.random() * 0.08
-    g.fillStyle = Math.random() > 0.5 ? `rgba(28,28,34,${a})` : `rgba(36,36,44,${a})`
-    g.fillRect(x, y, 1 + Math.random() * 2, 1 + Math.random() * 2)
-  }
-  for (let i = 0; i < 5; i++) {
-    const wx = Math.random() * 512
-    g.fillStyle = `rgba(40,48,58,${0.08 + Math.random() * 0.06})`
-    g.fillRect(wx, 0, 8 + Math.random() * 20, 512)
+    g.fillStyle = Math.random() > 0.5 ? `rgba(28,28,34,${0.04 + Math.random() * 0.08})` : `rgba(36,36,44,${0.04 + Math.random() * 0.08})`
+    g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2)
   }
   const tex = new THREE.CanvasTexture(c)
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping
@@ -54,6 +52,12 @@ function makeAsphaltTexture(): THREE.CanvasTexture {
 
 function blockOverlapsPlaza(minX: number, maxX: number, minZ: number, maxZ: number) {
   return maxX > -PLAZA_EXCLUDE && minX < PLAZA_EXCLUDE && maxZ > -PLAZA_EXCLUDE && minZ < PLAZA_EXCLUDE
+}
+
+/** Face shop fronts toward the nearest avenue (away from city center). */
+function frontYawForBlock(cx: number, cz: number): number {
+  if (Math.abs(cx) >= Math.abs(cz)) return cx >= 0 ? -Math.PI / 2 : Math.PI / 2
+  return cz >= 0 ? Math.PI : 0
 }
 
 function addStreetLamp(
@@ -68,13 +72,11 @@ function addStreetLamp(
   pole.position.set(x, 2.1, z)
   pole.castShadow = true
   root.add(pole)
-
   const armLen = 1.1
   const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.07, 0.07), poleMat)
   arm.position.set(x + Math.cos(faceYaw) * (armLen / 2 + 0.08), 4.05, z + Math.sin(faceYaw) * (armLen / 2 + 0.08))
   arm.rotation.y = faceYaw
   root.add(arm)
-
   const lampMat = new THREE.MeshStandardMaterial({
     color: 0xfff0dd,
     emissive: NEON_CYAN,
@@ -85,167 +87,33 @@ function addStreetLamp(
   lamp.position.set(x + Math.cos(faceYaw) * (armLen + 0.12), 3.98, z + Math.sin(faceYaw) * (armLen + 0.12))
   root.add(lamp)
   ctx.flickerMats.push({ mat: lampMat, base: 0.35, t: Math.random() * 3 })
-
   const light = new THREE.PointLight(NEON_CYAN, 0.45, 14, 2)
   light.position.copy(lamp.position)
   root.add(light)
 }
 
-function makeSignTexture(label: string, hexColor: number): THREE.CanvasTexture {
-  const c = document.createElement('canvas')
-  c.width = 256
-  c.height = 64
-  const ctx = c.getContext('2d')!
-  ctx.fillStyle = '#0c0a10'
-  ctx.fillRect(0, 0, 256, 64)
-  const css = `#${hexColor.toString(16).padStart(6, '0')}`
-  ctx.font = 'bold 28px Courier New, monospace'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillStyle = css
-  ctx.shadowColor = css
-  ctx.shadowBlur = 12
-  ctx.fillText(label, 128, 32)
-  const tex = new THREE.CanvasTexture(c)
-  tex.needsUpdate = true
-  return tex
-}
-
-function addNeonSign(
-  root: THREE.Group,
-  ctx: CityGridContext,
-  x: number,
-  y: number,
-  z: number,
-  rotY: number,
-  label: string,
-  color: number,
-  seed: number,
-) {
-  const tex = makeSignTexture(label, color)
-  const mat = new THREE.MeshStandardMaterial({
-    map: tex,
-    emissive: color,
-    emissiveIntensity: 0.85,
-    emissiveMap: tex,
-    transparent: true,
-    side: THREE.DoubleSide,
+function addZebraAtIntersection(root: THREE.Group, x: number, z: number, span: number) {
+  const markMat = new THREE.MeshStandardMaterial({
+    color: NEON_YELLOW,
+    emissive: NEON_YELLOW,
+    emissiveIntensity: 0.12,
+    roughness: 0.62,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
   })
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 0.85), mat)
-  sign.position.set(x, y, z)
-  sign.rotation.y = rotY
-  root.add(sign)
-  ctx.flickerMats.push({ mat, base: 0.85, t: seed })
-}
-
-function buildCommercialBlock(
-  root: THREE.Group,
-  ctx: CityGridContext,
-  cx: number,
-  cz: number,
-  w: number,
-  d: number,
-  seed: number,
-) {
-  const floors = 2 + Math.floor(seededRand(seed) * 4)
-  const fh = 1.25
-  const h = floors * fh + 0.3
-  const wallMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color().setHSL(0.72 + seededRand(seed + 1) * 0.08, 0.12, 0.14 + seededRand(seed + 2) * 0.06),
-    roughness: 0.72,
-    metalness: 0.18,
-  })
-  const body = new THREE.Mesh(new THREE.BoxGeometry(w * 0.92, h, d * 0.92), wallMat)
-  body.position.set(cx, h / 2, cz)
-  body.castShadow = true
-  body.receiveShadow = true
-  root.add(body)
-
-  const accent = NEON_ACCENTS[Math.floor(seededRand(seed + 3) * NEON_ACCENTS.length)]
-  const trimMat = new THREE.MeshStandardMaterial({
-    color: accent,
-    emissive: accent,
-    emissiveIntensity: 0.55,
-    roughness: 0.4,
-    metalness: 0.5,
-  })
-  const trim = new THREE.Mesh(new THREE.BoxGeometry(w * 0.94, 0.12, d * 0.94), trimMat)
-  trim.position.set(cx, 0.06, cz)
-  root.add(trim)
-  ctx.flickerMats.push({ mat: trimMat, base: 0.55, t: seed * 0.7 })
-
-  const labels = ['RAMEN', 'DATA', 'GEAR', 'NOOD', 'TECH', 'INKT', 'HACK', 'VOID']
-  const label = labels[Math.floor(seededRand(seed + 4) * labels.length)]
-  addNeonSign(root, ctx, cx, h * 0.55, cz + d * 0.47, 0, label, accent, seed)
-
-  for (let f = 0; f < floors; f++) {
-    const winMat = new THREE.MeshStandardMaterial({
-      color: 0x334455,
-      emissive: seededRand(seed + f * 11) > 0.35 ? 0x88bbff : 0x221818,
-      emissiveIntensity: 0.35 + seededRand(seed + f) * 0.4,
-      roughness: 0.25,
-    })
-    const win = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.7, fh * 0.55), winMat)
-    win.position.set(cx, 0.55 + f * fh + fh * 0.35, cz + d * 0.465)
-    root.add(win)
-    if (winMat.emissiveIntensity > 0.4) {
-      ctx.flickerMats.push({ mat: winMat, base: winMat.emissiveIntensity, t: seed + f })
-    }
-  }
-
-  if (seededRand(seed + 9) > 0.55) {
-    const holoMat = new THREE.MeshBasicMaterial({
-      color: NEON_PINK,
-      transparent: true,
-      opacity: 0.22,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    })
-    const holo = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 2.2), holoMat)
-    holo.position.set(cx + w * 0.35, h + 1.1, cz)
-    root.add(holo)
+  for (let i = -2; i <= 2; i++) {
+    const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.45, span * 0.7), markMat)
+    stripe.rotation.x = -Math.PI / 2
+    stripe.position.set(x + i * 0.55, MARK_Y + 0.002, z)
+    root.add(stripe)
+    const stripe2 = stripe.clone()
+    stripe2.rotation.z = Math.PI / 2
+    stripe2.position.set(x, MARK_Y + 0.002, z + i * 0.55)
+    root.add(stripe2)
   }
 }
 
-function buildCityBlock(
-  root: THREE.Group,
-  ctx: CityGridContext,
-  cx: number,
-  cz: number,
-  w: number,
-  d: number,
-  seed: number,
-) {
-  const roll = seededRand(seed)
-  if (roll > 0.62) {
-    const floors = 4 + Math.floor(seededRand(seed + 1) * 6)
-    const towerW = Math.min(w * 0.75, 5.5)
-    const towerD = Math.min(d * 0.75, 5.5)
-    const windowMats: THREE.MeshStandardMaterial[] = []
-    const tower = buildModernTower({
-      width: towerW,
-      depth: towerD,
-      floors,
-      balconies: seededRand(seed + 2) > 0.4,
-      balconySide: seededRand(seed + 3) > 0.5 ? 1 : -1,
-      seed: seed * 17,
-      windowMatsOut: windowMats,
-    })
-    tower.position.set(cx, 0, cz)
-    root.add(tower)
-    for (const wm of windowMats) {
-      ctx.flickerMats.push({ mat: wm, base: wm.emissiveIntensity, t: Math.random() * 4 })
-    }
-    if (seededRand(seed + 5) > 0.5) {
-      addNeonSign(root, ctx, cx, floors * 1.35 * 0.55, cz + towerD * 0.52, 0, 'APT', NEON_CYAN, seed)
-    }
-  } else {
-    buildCommercialBlock(root, ctx, cx, cz, w, d, seed)
-  }
-}
-
-/** SimCity-style orthogonal grid — plaza stays center hub, city blocks radiate outward. */
+/** SimCity grid with varied districts — food streets near plaza, towers further out. */
 export function buildCityGrid(ctx: CityGridContext): THREE.Group {
   const root = new THREE.Group()
   root.name = 'city-grid'
@@ -280,7 +148,6 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
   const lines: number[] = []
   for (let i = -GRID_SPAN; i <= GRID_SPAN; i++) lines.push(i * PITCH)
 
-  // Road grid
   for (let li = 0; li < lines.length; li++) {
     const pos = lines[li]
     const isAvenue = li % 2 === 0
@@ -289,26 +156,21 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
     vRoad.position.set(pos, SURFACE_Y, 0)
     vRoad.receiveShadow = true
     root.add(vRoad)
-
     const hRoad = new THREE.Mesh(new THREE.PlaneGeometry(citySpan, ROAD), asphaltMat)
     hRoad.rotation.x = -Math.PI / 2
     hRoad.position.set(0, SURFACE_Y, pos)
     hRoad.receiveShadow = true
     root.add(hRoad)
-
     if (isAvenue) {
-      const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.14, citySpan - ROAD), markMat)
-      dash.rotation.x = -Math.PI / 2
-      dash.position.set(pos, MARK_Y, 0)
-      root.add(dash)
-      const dashH = new THREE.Mesh(new THREE.PlaneGeometry(citySpan - ROAD, 0.14), markMat)
-      dashH.rotation.x = -Math.PI / 2
-      dashH.position.set(0, MARK_Y, pos)
-      root.add(dashH)
+      for (const [rx, rz, rw, rh] of [[pos, 0, 0.14, citySpan - ROAD], [0, pos, citySpan - ROAD, 0.14]] as const) {
+        const dash = new THREE.Mesh(new THREE.PlaneGeometry(rw, rh), markMat)
+        dash.rotation.x = -Math.PI / 2
+        dash.position.set(rx, MARK_Y, rz)
+        root.add(dash)
+      }
     }
   }
 
-  // Curbs along plaza-adjacent roads
   for (const pos of lines) {
     if (Math.abs(pos) > PLAZA_EXCLUDE + ROAD) continue
     for (const side of [-1, 1]) {
@@ -321,7 +183,6 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
     }
   }
 
-  // City blocks + intersection lamps
   for (let xi = 0; xi < lines.length - 1; xi++) {
     for (let zi = 0; zi < lines.length - 1; zi++) {
       const minX = lines[xi] + ROAD / 2
@@ -334,28 +195,66 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
       const cz = (minZ + maxZ) / 2
       const w = maxX - minX - 0.6
       const d = maxZ - minZ - 0.6
-      const pad = new THREE.Mesh(
-        new THREE.PlaneGeometry(w, d),
-        new THREE.MeshStandardMaterial({ color: 0x141018, roughness: 0.88, metalness: 0.08 }),
-      )
-      pad.rotation.x = -Math.PI / 2
-      pad.position.set(cx, 0.003, cz)
-      pad.receiveShadow = true
-      root.add(pad)
-
       const seed = xi * 97 + zi * 53 + 1000
-      buildCityBlock(root, ctx, cx, cz, w, d, seed)
+      const gx = xi - GRID_SPAN
+      const gz = zi - GRID_SPAN
+
+      addSidewalkTiles(root, cx, cz, w, d)
+
+      const kind = pickBuildingKind(gx, gz, seed)
+      if (kind !== 'park') {
+        const pad = new THREE.Mesh(
+          new THREE.PlaneGeometry(w, d),
+          new THREE.MeshStandardMaterial({ color: 0x141018, roughness: 0.88, metalness: 0.08 }),
+        )
+        pad.rotation.x = -Math.PI / 2
+        pad.position.set(cx, 0.003, cz)
+        pad.receiveShadow = true
+        root.add(pad)
+      }
+
+      buildLot(kind, {
+        root,
+        ctx,
+        cx,
+        cz,
+        w,
+        d,
+        seed,
+        frontYaw: frontYawForBlock(cx, cz),
+      })
+
+      // Food-street atmosphere near plaza
+      if (Math.abs(gx) + Math.abs(gz) <= 2 && seededRand(seed + 50) > 0.45) {
+        const fo = frontYawForBlock(cx, cz)
+        const lx = cx + Math.cos(fo) * d * 0.35
+        const lz = cz + Math.sin(fo) * d * 0.35
+        addLanternString(root, lx - 1.2, lz, lx + 1.2, lz, seed)
+      }
+
+      if (seededRand(seed + 77) > 0.82) {
+        addPowerLines(root, cx - w * 0.4, cz, cx + w * 0.4, cz, 3.2 + seededRand(seed) * 0.8)
+      }
     }
   }
 
+  // Intersections: lamps, props, zebra crossings near plaza
   for (const x of lines) {
     for (const z of lines) {
       if (Math.abs(x) < PLAZA_EXCLUDE && Math.abs(z) < PLAZA_EXCLUDE) continue
       addStreetLamp(root, ctx, x + ROAD * 0.35, z + ROAD * 0.35, Math.PI * 0.25)
-      if (seededRand(x * 13 + z) > 0.7) {
+
+      const distPlaza = Math.max(Math.abs(x), Math.abs(z))
+      if (distPlaza < PLAZA_EXCLUDE + PITCH * 1.5 && seededRand(x * 7 + z) > 0.5) {
+        addZebraAtIntersection(root, x, z, ROAD)
+      }
+
+      scatterStreetProps(root, ctx, x + (seededRand(x + z) - 0.5) * ROAD * 0.5, z + (seededRand(z - x) - 0.5) * ROAD * 0.5, x * 13 + z)
+
+      if (seededRand(x * 13 + z) > 0.75) {
         const accent = NEON_ACCENTS[Math.floor(seededRand(x + z) * NEON_ACCENTS.length)]
-        const glow = new THREE.PointLight(accent, 0.25, 10, 2)
-        glow.position.set(x, 0.5, z)
+        const glow = new THREE.PointLight(accent, 0.28, 12, 2)
+        glow.position.set(x, 0.6, z)
         root.add(glow)
       }
     }
