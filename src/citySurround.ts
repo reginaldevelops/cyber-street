@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { buildModernTower, towerColliderMeshes } from './modernBuilding.js'
 import { buildPlazaStreet } from './plazaStreet.js'
 import { buildCityGrid } from './cityGrid.js'
+import { buildPlazaDiner } from './plazaDiner.js'
 import {
   PERIM_INNER,
   PERIM_OUTER,
@@ -711,6 +712,7 @@ function buildStreetRing(ctx: CitySurroundContext): THREE.Group {
 /** Master builder — all surround systems + stats for budget tracking. */
 export function buildCitySurround(ctx: CitySurroundContext): CitySurroundStats {
   buildPlazaStreet({ scene: ctx.scene, flickerMats: ctx.flickerMats })
+  buildPlazaDiner({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
   buildCityGrid({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
 
   let meshCount = 0
