@@ -14,6 +14,12 @@ import {
 import { buildCitySurround } from './citySurround.js'
 import { loadHitemPlayer, updatePlayerAnimations } from './playerModel.js'
 import {
+  applyNearestTextures,
+  applyPixelResolution,
+  createPixelQuantizePass,
+  PIXEL_SCALE,
+} from './pixelLook.js'
+import {
   CITY_HALF,
   ISO_CAM_OFFSET as ISO_CAM_DIST,
   ISO_FRUSTUM,
@@ -175,13 +181,14 @@ export class Game {
       document.getElementById('scoreboard')?.classList.add('hidden')
     }
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true })
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' })
+    this.renderer.setPixelRatio(1)
     this.renderer.setSize(container.clientWidth, container.clientHeight)
     this.renderer.shadowMap.enabled = true
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.shadowMap.type = THREE.BasicShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.38
+    this.renderer.toneMappingExposure = 1.32
+    this.renderer.domElement.style.imageRendering = 'pixelated'
     container.appendChild(this.renderer.domElement)
 
     const aspect = container.clientWidth / Math.max(container.clientHeight, 1)
@@ -272,8 +279,10 @@ export class Game {
   private setupPost() {
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.48, 0.48, 0.82)
+    // Soft bloom fights pixel look — keep it subtle at low res
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.28, 0.55, 0.88)
     this.composer.addPass(this.bloom)
+    this.composer.addPass(createPixelQuantizePass())
     this.composer.addPass(new OutputPass())
   }
 
@@ -317,6 +326,7 @@ export class Game {
     this.scene.add(this.rain)
 
     this.ambience = populateSceneAmbience(this.scene, this.flickerMats)
+    applyNearestTextures(this.scene)
   }
 
   private addPuddleDecal(x: number, z: number, radius: number, color: number, intensity = 0.22) {
@@ -370,6 +380,7 @@ export class Game {
     if (idx >= 0) this.worldColliders.splice(idx, 1)
 
     this.buildPlazaFloor(concept)
+    applyNearestTextures(this.groundGroup)
   }
 
   private updateConceptPanel() {
@@ -793,8 +804,7 @@ export class Game {
     this.camera.top = ISO_FRUSTUM / 2
     this.camera.bottom = -ISO_FRUSTUM / 2
     this.camera.updateProjectionMatrix()
-    this.renderer.setSize(w, h)
-    this.composer.setSize(w, h)
+    applyPixelResolution(this.renderer, this.composer, w, h, PIXEL_SCALE)
   }
 
   // ── Beweging & camera ───────────────────────────────────────────────────

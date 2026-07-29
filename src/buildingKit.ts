@@ -71,6 +71,9 @@ export function makeNeonLabel(text: string, color: number, w = 512, h = 128, fon
   g.fillText(text, w / 2, h / 2 + 2)
   const tex = new THREE.CanvasTexture(c)
   tex.colorSpace = THREE.SRGBColorSpace
+  tex.magFilter = THREE.NearestFilter
+  tex.minFilter = THREE.NearestFilter
+  tex.generateMipmaps = false
   tex.needsUpdate = true
   return tex
 }

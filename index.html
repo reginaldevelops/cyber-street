@@ -4,11 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cyber Street</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
     <style>
       * {
         box-sizing: border-box;
         margin: 0;
         padding: 0;
+        image-rendering: pixelated;
       }
       html,
       body {
@@ -16,7 +20,7 @@
         height: 100%;
         overflow: hidden;
         background: #050508;
-        font-family: 'Courier New', ui-monospace, monospace;
+        font-family: 'Press Start 2P', 'Courier New', monospace;
       }
       #app {
         width: 100%;
@@ -24,6 +28,8 @@
       }
       canvas {
         display: block;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
       }
       #hud {
         position: fixed;
@@ -31,15 +37,14 @@
         pointer-events: none;
         color: #c8f7ff;
       }
-      /* Vignette + subtiele scanlines voor de cyberpunk-look */
       #hud::before {
         content: '';
         position: absolute;
         inset: 0;
         background: radial-gradient(
           ellipse at center,
-          transparent 58%,
-          rgba(5, 2, 14, 0.55) 100%
+          transparent 52%,
+          rgba(5, 2, 14, 0.62) 100%
         );
       }
       #hud::after {
@@ -49,28 +54,31 @@
         background: repeating-linear-gradient(
           to bottom,
           rgba(0, 0, 0, 0) 0px,
-          rgba(0, 0, 0, 0) 3px,
-          rgba(0, 255, 255, 0.02) 3px,
-          rgba(0, 255, 255, 0.02) 4px
+          rgba(0, 0, 0, 0) 2px,
+          rgba(0, 0, 0, 0.18) 2px,
+          rgba(0, 0, 0, 0.18) 3px
         );
-        mix-blend-mode: overlay;
+        mix-blend-mode: multiply;
+        opacity: 0.85;
+        pointer-events: none;
       }
       #crosshair {
         position: absolute;
         left: 50%;
         top: 50%;
-        width: 18px;
-        height: 18px;
-        margin: -9px 0 0 -9px;
-        border: 2px solid rgba(0, 255, 255, 0.85);
-        border-radius: 50%;
-        box-shadow: 0 0 12px rgba(0, 255, 255, 0.5);
+        width: 16px;
+        height: 16px;
+        margin: -8px 0 0 -8px;
+        border: 2px solid rgba(0, 255, 255, 0.95);
+        border-radius: 0;
+        box-shadow: none;
+        background: transparent;
       }
       #crosshair::before,
       #crosshair::after {
         content: '';
         position: absolute;
-        background: rgba(255, 0, 170, 0.9);
+        background: rgba(255, 45, 149, 1);
       }
       #crosshair::before {
         left: 50%;
@@ -87,55 +95,50 @@
         margin-left: -1px;
       }
       #crosshair.hit {
-        animation: hitmark 0.18s ease-out;
+        animation: hitmark 0.18s steps(2, end);
       }
       @keyframes hitmark {
-        0% {
-          transform: scale(1);
-          border-color: rgba(255, 45, 149, 1);
-          box-shadow: 0 0 20px rgba(255, 45, 149, 0.9);
-        }
-        100% {
-          transform: scale(1.45);
-          border-color: rgba(0, 255, 255, 0.85);
-          box-shadow: 0 0 12px rgba(0, 255, 255, 0.5);
-        }
+        0% { border-color: #ff2d95; }
+        100% { border-color: #00f6ff; }
       }
       #scoreboard {
         position: absolute;
-        top: 22px;
-        left: 26px;
-        padding: 10px 18px;
-        border: 1px solid rgba(0, 255, 255, 0.35);
-        border-left: 3px solid rgba(255, 45, 149, 0.9);
-        background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(6px);
+        top: 18px;
+        left: 18px;
+        padding: 12px 14px;
+        border: 3px solid #00f6ff;
+        border-left: 6px solid #ff2d95;
+        background: #0a0810;
         text-transform: uppercase;
-        letter-spacing: 0.18em;
-        font-size: 12px;
+        letter-spacing: 0.08em;
+        font-size: 8px;
+        line-height: 1.6;
+        box-shadow: 4px 4px 0 #ff2d95;
       }
       #scoreboard #kills {
         display: block;
-        margin-top: 2px;
-        font-size: 30px;
-        font-weight: 700;
-        letter-spacing: 0.1em;
+        margin-top: 6px;
+        font-size: 18px;
+        font-weight: 400;
+        letter-spacing: 0.06em;
         color: #ff2d95;
-        text-shadow: 0 0 14px rgba(255, 45, 149, 0.8);
+        text-shadow: 2px 2px 0 #400020;
       }
       #hint {
         position: absolute;
         left: 50%;
-        bottom: 28px;
+        bottom: 22px;
         transform: translateX(-50%);
-        padding: 12px 20px;
-        border: 1px solid rgba(0, 255, 255, 0.35);
-        background: rgba(0, 0, 0, 0.55);
-        font-size: 14px;
-        letter-spacing: 0.06em;
+        padding: 12px 16px;
+        border: 3px solid #00f6ff;
+        background: #0a0810;
+        font-size: 8px;
+        letter-spacing: 0.04em;
         text-align: center;
-        backdrop-filter: blur(6px);
-        text-shadow: 0 0 8px rgba(0, 246, 255, 0.6);
+        line-height: 1.7;
+        max-width: min(92vw, 720px);
+        box-shadow: 4px 4px 0 #00f6ff;
+        text-shadow: none;
       }
       #hint b {
         color: #ff2d95;
@@ -148,29 +151,29 @@
       }
       #concept-panel {
         position: absolute;
-        top: 22px;
-        right: 26px;
-        width: 280px;
-        padding: 14px 16px;
-        border: 1px solid rgba(255, 45, 149, 0.4);
-        border-right: 3px solid rgba(0, 255, 255, 0.85);
-        background: rgba(0, 0, 0, 0.58);
-        backdrop-filter: blur(6px);
-        font-size: 12px;
-        line-height: 1.45;
-        letter-spacing: 0.04em;
+        top: 18px;
+        right: 18px;
+        width: 260px;
+        padding: 12px;
+        border: 3px solid #ff2d95;
+        border-right: 6px solid #00f6ff;
+        background: #0a0810;
+        font-size: 7px;
+        line-height: 1.7;
+        letter-spacing: 0.02em;
+        box-shadow: 4px 4px 0 #00f6ff;
       }
       #concept-panel .concept-title {
-        font-size: 14px;
-        font-weight: 700;
+        font-size: 8px;
+        font-weight: 400;
         color: #00f6ff;
         text-transform: uppercase;
-        letter-spacing: 0.12em;
-        margin-bottom: 4px;
+        letter-spacing: 0.06em;
+        margin-bottom: 6px;
       }
       #concept-panel .concept-tag {
         color: #ff2d95;
-        font-size: 11px;
+        font-size: 7px;
         margin-bottom: 8px;
       }
       #concept-panel .concept-pitch {
@@ -178,9 +181,9 @@
         margin-bottom: 10px;
       }
       #concept-panel .concept-keys {
-        font-size: 11px;
+        font-size: 7px;
         color: #8899aa;
-        border-top: 1px solid rgba(0, 255, 255, 0.2);
+        border-top: 2px solid #00f6ff;
         padding-top: 8px;
       }
       #concept-panel b {
@@ -210,68 +213,57 @@
       #title-logo {
         width: min(680px, 86vw);
         height: auto;
-        filter:
-          drop-shadow(0 6px 18px rgba(0, 0, 0, 0.7))
-          drop-shadow(0 0 32px rgba(0, 246, 255, 0.25))
-          drop-shadow(0 0 32px rgba(255, 45, 149, 0.2));
-        animation: title-float 3.5s ease-in-out infinite;
+        image-rendering: pixelated;
+        filter: none;
+        animation: title-float 1.2s steps(2, end) infinite;
         pointer-events: none;
         user-select: none;
       }
       @keyframes title-float {
-        0%,
-        100% {
-          transform: translateY(0) scale(1);
-        }
-        50% {
-          transform: translateY(-6px) scale(1.01);
-        }
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-4px); }
       }
       #start-audio-hint {
-        font-size: 11px;
-        letter-spacing: 0.14em;
-        color: rgba(200, 247, 255, 0.65);
-        text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
+        font-size: 7px;
+        letter-spacing: 0.08em;
+        color: rgba(200, 247, 255, 0.75);
+        text-shadow: 2px 2px 0 #000;
         text-transform: uppercase;
       }
       #start-audio-hint.hidden {
         display: none;
       }
       #play-btn {
-        font-family: Impact, Haettenschweiler, 'Arial Black', sans-serif;
-        font-size: 28px;
-        font-weight: 900;
-        font-style: italic;
-        letter-spacing: 0.18em;
+        font-family: 'Press Start 2P', monospace;
+        font-size: 14px;
+        font-weight: 400;
+        font-style: normal;
+        letter-spacing: 0.12em;
         text-transform: uppercase;
         color: #101018;
-        background: linear-gradient(180deg, #ffd400 0%, #7ae020 55%, #5bc918 100%);
+        background: #ffd400;
         border: 4px solid #1a1020;
-        outline: 3px solid #ffd400;
-        padding: 12px 56px 14px;
+        outline: 3px solid #7ae020;
+        padding: 14px 40px 16px;
         cursor: pointer;
-        box-shadow:
-          0 6px 0 #1a1020,
-          0 0 24px rgba(122, 224, 32, 0.55);
-        transition: transform 0.12s ease, box-shadow 0.12s ease;
+        box-shadow: 6px 6px 0 #1a1020;
+        transition: none;
+        image-rendering: pixelated;
       }
       #play-btn:hover {
-        transform: translateY(-2px) scale(1.05);
-        box-shadow:
-          0 8px 0 #1a1020,
-          0 0 36px rgba(255, 212, 0, 0.65);
+        transform: translate(-2px, -2px);
+        box-shadow: 8px 8px 0 #1a1020;
+        background: #ffe566;
       }
       #play-btn:active {
-        transform: translateY(4px);
-        box-shadow:
-          0 2px 0 #1a1020,
-          0 0 20px rgba(122, 224, 32, 0.45);
+        transform: translate(3px, 3px);
+        box-shadow: 2px 2px 0 #1a1020;
       }
       body.menu-mode #hud::before {
         opacity: 0.25;
       }
       body.menu-mode #hud::after {
-        opacity: 0.35;
+        opacity: 0.45;
       }
     </style>
   </head>
