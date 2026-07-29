@@ -4,6 +4,7 @@ import { buildPlazaStreet } from './plazaStreet.js'
 import { buildCityGrid } from './cityGrid.js'
 import { buildPlazaDiner } from './plazaDiner.js'
 import { buildPlazaFountain } from './plazaFountain.js'
+import { buildPlazaSubway } from './plazaSubway.js'
 import {
   PERIM_INNER,
   PERIM_OUTER,
@@ -715,6 +716,7 @@ export function buildCitySurround(ctx: CitySurroundContext): CitySurroundStats {
   buildPlazaStreet({ scene: ctx.scene, flickerMats: ctx.flickerMats })
   buildPlazaDiner({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
   buildPlazaFountain({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
+  buildPlazaSubway({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
   buildCityGrid({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
 
   let meshCount = 0

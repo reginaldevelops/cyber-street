@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { ws } from './worldConfig.js'
 import { FOUNTAIN_X, FOUNTAIN_Z } from './plazaFountain.js'
+import { SUBWAY_X, SUBWAY_Z } from './plazaSubway.js'
 import { CITY_PITCH, CITY_ROAD, CITY_GRID_SPAN } from './cityGrid.js'
 import { PLAZA_EXCLUDE } from './worldConfig.js'
 
@@ -721,6 +722,37 @@ function spawnCityStreetLife(scene: THREE.Scene, droids: DroidNPC[]) {
   }
 }
 
+/** Commuters hanging at the metro station behind the fountain. */
+function spawnSubwayLoiterers(scene: THREE.Scene, droids: DroidNPC[]) {
+  const sx = SUBWAY_X
+  const sz = SUBWAY_Z
+  // Face toward fountain / diner
+  const face = (-3 * Math.PI) / 4
+
+  const idle1 = buildDroidNPC(sx - 2.5, sz - 1.2, 'idle')
+  idle1.root.rotation.y = face
+  droids.push(idle1)
+  scene.add(idle1.root)
+
+  const idle2 = buildDroidNPC(sx - 1.2, sz - 2.8, 'idle')
+  idle2.root.rotation.y = face + 0.5
+  idle2.armR.rotation.x = -0.5
+  droids.push(idle2)
+  scene.add(idle2.root)
+
+  const walker = buildDroidNPC(sx + 1.5, sz - 0.5, 'walking')
+  walker.root.userData.spawn = new THREE.Vector2(sx, sz)
+  walker.path = [
+    new THREE.Vector2(-3, -3),
+    new THREE.Vector2(1, -4),
+    new THREE.Vector2(2, -1),
+    new THREE.Vector2(-2, 0),
+    new THREE.Vector2(-3, -3),
+  ]
+  droids.push(walker)
+  scene.add(walker.root)
+}
+
 export function populateSceneAmbience(
   scene: THREE.Scene,
   _flickerMats: { mat: THREE.MeshStandardMaterial; base: number; t: number }[],
@@ -734,13 +766,13 @@ export function populateSceneAmbience(
   scene.add(marketDroid.root)
 
   spawnFountainLoiterers(scene, state.droids)
+  spawnSubwayLoiterers(scene, state.droids)
   spawnCityStreetLife(scene, state.droids)
 
   const vent = buildSteamVent(ws(6), 0.02, -ws(6))
   state.steamVents.push(vent)
   scene.add(vent.grate, vent.steam)
 
-  // Extra steam near city edge for atmosphere
   const vent2 = buildSteamVent(-ws(18), 0.02, ws(14))
   state.steamVents.push(vent2)
   scene.add(vent2.grate, vent2.steam)
