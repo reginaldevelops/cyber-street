@@ -2,15 +2,15 @@ import * as THREE from 'three'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 
 /** Internal render is 1/PIXEL_SCALE of the screen, then nearest-upscaled. */
-export const PIXEL_SCALE = 3
+export const PIXEL_SCALE = 2
 
 /** Mild posterize for chunky cyberpunk palette banding. */
 export const PixelQuantizeShader = {
   name: 'PixelQuantizeShader',
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    levels: { value: 24.0 },
-    dither: { value: 0.035 },
+    levels: { value: 36.0 },
+    dither: { value: 0.02 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
