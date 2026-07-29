@@ -5,10 +5,14 @@ const NEON_CYAN = 0x00f6ff
 const NEON_YELLOW = 0xffe14d
 const NEON_ORANGE = 0xff6622
 const METRO_BLUE = 0x3388ff
+const METRO_PINK = 0xff2d95
 
-/** Behind fountain (9,9), opposite Tesla diner (-9,-9) on SE plaza. */
-export const SUBWAY_X = 15.2
-export const SUBWAY_Z = 15.2
+/**
+ * Station behind fountain (SE), opposite Tesla diner (NW).
+ * Rails run west along the plaza, loop down underground, then toward the diner.
+ */
+export const SUBWAY_X = 14.5
+export const SUBWAY_Z = 14.5
 
 export interface PlazaSubwayContext {
   scene: THREE.Scene
@@ -21,7 +25,7 @@ function matMetal(color: number, rough = 0.4, metal = 0.75) {
 }
 
 function matPaint(color: number) {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.15 })
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.72, metalness: 0.12 })
 }
 
 function glow(color: number, intensity: number) {
@@ -46,12 +50,12 @@ function addSign(
   w: number,
   h: number,
 ) {
-  const tex = makeNeonLabel(text, color, 512, 128, 44)
+  const tex = makeNeonLabel(text, color, 512, 128, 42)
   const mat = new THREE.MeshStandardMaterial({
     map: tex,
     emissive: color,
     emissiveMap: tex,
-    emissiveIntensity: 1.05,
+    emissiveIntensity: 1.1,
     transparent: true,
     side: THREE.DoubleSide,
   })
@@ -59,13 +63,14 @@ function addSign(
   mesh.position.set(x, y, z)
   mesh.rotation.y = rotY
   root.add(mesh)
-  ctx.flickerMats.push({ mat, base: 1.05, t: Math.random() * 3 })
+  ctx.flickerMats.push({ mat, base: 1.1, t: Math.random() * 3 })
 }
 
-/** Twin rails along a polyline of {x,y,z} points. */
-function addRails(root: THREE.Group, points: THREE.Vector3[], gauge = 1.05) {
-  const railMat = matMetal(0x6a7078, 0.35, 0.9)
+/** Twin rails + ties along world-space polyline. */
+function addRails(root: THREE.Group, points: THREE.Vector3[], gauge = 1.1) {
+  const railMat = matMetal(0x8a9098, 0.3, 0.92)
   const tieMat = matPaint(0x2a2018)
+  const bedMat = matPaint(0x1a1a22)
 
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i]
@@ -73,332 +78,362 @@ function addRails(root: THREE.Group, points: THREE.Vector3[], gauge = 1.05) {
     const mid = a.clone().add(b).multiplyScalar(0.5)
     const dir = b.clone().sub(a)
     const len = dir.length()
-    if (len < 0.05) continue
+    if (len < 0.08) continue
     dir.normalize()
 
-    // Horizontal perpendicular for gauge (approx on XZ)
-    const perp = new THREE.Vector3(-dir.z, 0, dir.x).normalize()
-    const yaw = Math.atan2(dir.x, dir.z)
+    const horiz = new THREE.Vector3(dir.x, 0, dir.z)
+    if (horiz.lengthSq() < 1e-6) horiz.set(1, 0, 0)
+    horiz.normalize()
+    const perp = new THREE.Vector3(-horiz.z, 0, horiz.x)
+    const yaw = Math.atan2(horiz.x, horiz.z)
     const pitch = Math.atan2(dir.y, Math.hypot(dir.x, dir.z))
 
+    // Ballast bed
+    const bed = new THREE.Mesh(new THREE.BoxGeometry(gauge + 0.9, 0.12, len + 0.05), bedMat)
+    bed.position.copy(mid)
+    bed.position.y -= 0.1
+    bed.rotation.y = yaw
+    bed.rotation.x = -pitch
+    bed.receiveShadow = true
+    root.add(bed)
+
     for (const side of [-1, 1] as const) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, len + 0.02), railMat)
-      const off = perp.clone().multiplyScalar(side * gauge / 2)
-      rail.position.copy(mid).add(off)
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, len + 0.04), railMat)
+      rail.position.copy(mid).addScaledVector(perp, side * gauge / 2)
       rail.rotation.y = yaw
       rail.rotation.x = -pitch
       rail.castShadow = true
       root.add(rail)
     }
 
-    // Ties every ~0.7m along segment
-    const tieCount = Math.max(1, Math.floor(len / 0.7))
+    const tieCount = Math.max(1, Math.floor(len / 0.65))
     for (let t = 0; t < tieCount; t++) {
       const u = (t + 0.5) / tieCount
       const p = a.clone().lerp(b, u)
-      const tie = new THREE.Mesh(new THREE.BoxGeometry(gauge + 0.35, 0.06, 0.18), tieMat)
+      const tie = new THREE.Mesh(new THREE.BoxGeometry(gauge + 0.4, 0.07, 0.2), tieMat)
       tie.position.copy(p)
-      tie.position.y -= 0.04
+      tie.position.y -= 0.05
       tie.rotation.y = yaw
       root.add(tie)
+    }
+
+    // Support pillars while elevated (y > 0.3)
+    if (mid.y > 0.35 && i % 2 === 0) {
+      const post = new THREE.Mesh(
+        new THREE.BoxGeometry(0.22, mid.y + 0.15, 0.22),
+        matMetal(0x4a5058, 0.45, 0.7),
+      )
+      post.position.set(mid.x, (mid.y - 0.1) / 2, mid.z)
+      post.castShadow = true
+      root.add(post)
     }
   }
 }
 
-function buildMetroCar(root: THREE.Group, x: number, y: number, z: number, yaw: number, ctx: PlazaSubwayContext) {
+function buildMetroCar(
+  root: THREE.Group,
+  x: number,
+  y: number,
+  z: number,
+  yaw: number,
+  ctx: PlazaSubwayContext,
+) {
   const g = new THREE.Group()
   g.position.set(x, y, z)
   g.rotation.y = yaw
 
-  const bodyMat = matPaint(0x2a3040)
-  const silver = matMetal(0xa0a8b0, 0.3, 0.85)
-  const windowMat = glow(NEON_CYAN, 0.45)
+  const bodyMat = matPaint(0x2a3448)
+  const silver = matMetal(0xb0b6c0, 0.28, 0.88)
+  const windowMat = glow(NEON_CYAN, 0.5)
   windowMat.transparent = true
-  windowMat.opacity = 0.75
+  windowMat.opacity = 0.78
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.2, 7.2), bodyMat)
-  body.position.y = 1.35
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.35, 2.1, 6.8), bodyMat)
+  body.position.y = 1.25
   body.castShadow = true
   g.add(body)
 
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.15, 7.15), silver)
-  roof.position.y = 2.5
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.14, 6.75), silver)
+  roof.position.y = 2.35
   g.add(roof)
 
-  // Stripe
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.42, 0.18, 7.22), glow(METRO_BLUE, 0.7))
-  stripe.position.y = 1.9
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.38, 0.2, 6.82), glow(METRO_BLUE, 0.75))
+  stripe.position.y = 1.85
   g.add(stripe)
-  ctx.flickerMats.push({ mat: stripe.material as THREE.MeshStandardMaterial, base: 0.7, t: 1 })
+  ctx.flickerMats.push({ mat: stripe.material as THREE.MeshStandardMaterial, base: 0.75, t: 1 })
 
   for (let i = 0; i < 4; i++) {
-    const win = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.85), windowMat)
-    win.position.set(1.21, 1.55, -2.2 + i * 1.4)
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.8), windowMat)
+    win.position.set(1.18, 1.45, -2.0 + i * 1.3)
     win.rotation.y = Math.PI / 2
     g.add(win)
     const win2 = win.clone()
-    win2.position.x = -1.21
+    win2.position.x = -1.18
     win2.rotation.y = -Math.PI / 2
     g.add(win2)
   }
 
-  // Front window
-  const front = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.0), windowMat)
-  front.position.set(0, 1.6, -3.62)
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 0.95), windowMat)
+  front.position.set(0, 1.5, -3.42)
   g.add(front)
 
-  addSign(g, ctx, 'M', METRO_BLUE, 0, 2.15, -3.65, 0, 0.55, 0.55)
+  addSign(g, ctx, 'M', METRO_BLUE, 0, 2.05, -3.45, 0, 0.5, 0.5)
 
-  for (const [wx, wz] of [[-0.85, -2.4], [0.85, -2.4], [-0.85, 2.4], [0.85, 2.4]] as const) {
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.18, 10), matMetal(0x1a1a20))
+  for (const [wx, wz] of [[-0.8, -2.2], [0.8, -2.2], [-0.8, 2.2], [0.8, 2.2]] as const) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.16, 10), matMetal(0x1a1a20))
     wheel.rotation.z = Math.PI / 2
-    wheel.position.set(wx, 0.28, wz)
+    wheel.position.set(wx, 0.26, wz)
     g.add(wheel)
   }
 
-  const light = new THREE.PointLight(NEON_CYAN, 0.4, 10, 2)
-  light.position.set(0, 2.2, 0)
+  const light = new THREE.PointLight(NEON_CYAN, 0.35, 9, 2)
+  light.position.set(0, 2.0, 0)
+  g.add(light)
+  root.add(g)
+}
+
+/** Cool above-ground metro pavilion at the SE plaza corner. */
+function buildStation(root: THREE.Group, ctx: PlazaSubwayContext) {
+  const g = new THREE.Group()
+  g.position.set(SUBWAY_X, 0, SUBWAY_Z)
+  // Face NW toward fountain / diner
+  g.rotation.y = Math.PI / 4
+
+  const concrete = matPaint(0x3a3e48)
+  const dark = matPaint(0x22262e)
+  const steel = matMetal(0x7a8088)
+  const glass = glow(NEON_CYAN, 0.4)
+  glass.transparent = true
+  glass.opacity = 0.72
+
+  // Raised tiled plaza pad
+  const pad = new THREE.Mesh(new THREE.BoxGeometry(10, 0.28, 8), dark)
+  pad.position.y = 0.14
+  pad.receiveShadow = true
+  g.add(pad)
+
+  // Main hall — open glass box with heavy steel roof
+  const hall = new THREE.Mesh(new THREE.BoxGeometry(7.5, 3.4, 4.8), concrete)
+  hall.position.set(0, 1.9, 0.4)
+  hall.castShadow = true
+  g.add(hall)
+
+  // Cut glass facade (front toward fountain)
+  for (let i = 0; i < 3; i++) {
+    const pane = new THREE.Mesh(new THREE.BoxGeometry(2.0, 2.6, 0.08), glass)
+    pane.position.set(-2.2 + i * 2.2, 1.6, -2.05)
+    g.add(pane)
+  }
+  ctx.flickerMats.push({ mat: glass, base: 0.4, t: 0.5 })
+
+  // Entrance void
+  const entry = new THREE.Mesh(
+    new THREE.BoxGeometry(2.4, 2.5, 0.5),
+    new THREE.MeshStandardMaterial({ color: 0x050508, roughness: 1 }),
+  )
+  entry.position.set(0, 1.35, -2.0)
+  g.add(entry)
+
+  // Wing roofs / cantilever
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(9.5, 0.18, 6.2), steel)
+  roof.position.set(0, 3.85, 0.2)
+  roof.castShadow = true
+  g.add(roof)
+
+  const roofAccent = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.08, 5.9), glow(METRO_BLUE, 0.7))
+  roofAccent.position.set(0, 3.72, 0.2)
+  g.add(roofAccent)
+  ctx.flickerMats.push({ mat: roofAccent.material as THREE.MeshStandardMaterial, base: 0.7, t: 1.1 })
+
+  // Side columns
+  for (const side of [-1, 1] as const) {
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 3.7, 8), steel)
+    col.position.set(side * 4.0, 1.95, -1.2)
+    col.castShadow = true
+    g.add(col)
+  }
+
+  // Escalator down into platform (visible steps)
+  for (let i = 0; i < 8; i++) {
+    const step = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.1, 0.4), steel)
+    step.position.set(0, 0.15 + i * 0.2, -0.2 + i * 0.4)
+    g.add(step)
+  }
+
+  // Big METRO blade sign
+  addSign(g, ctx, 'METRO', METRO_BLUE, 0, 4.35, -2.3, 0, 4.2, 0.75)
+  addSign(g, ctx, 'LINE M1', NEON_YELLOW, 0, 3.75, -2.3, 0, 2.4, 0.35)
+
+  // Round M totem
+  const totem = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.2, 20), glow(METRO_BLUE, 0.9))
+  totem.position.set(-3.6, 2.6, -2.3)
+  totem.rotation.x = Math.PI / 2
+  g.add(totem)
+  addSign(g, ctx, 'M', METRO_PINK, -3.6, 2.6, -2.45, 0, 0.7, 0.7)
+
+  // Tall pylon
+  const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.4, 6.2, 0.4), dark)
+  pylon.position.set(4.5, 3.1, -2.5)
+  g.add(pylon)
+  addSign(g, ctx, 'M', METRO_BLUE, 4.5, 5.5, -2.75, 0, 1.0, 1.0)
+
+  const light = new THREE.PointLight(METRO_BLUE, 0.65, 16, 2)
+  light.position.set(0, 3.2, 0)
+  g.add(light)
+
+  if (ctx.colliders) {
+    const col = new THREE.Mesh(
+      new THREE.BoxGeometry(8, 4, 5.5),
+      new THREE.MeshBasicMaterial({ visible: false }),
+    )
+    col.position.set(0, 2, 0.2)
+    g.add(col)
+    ctx.colliders.push(col)
+  }
+
+  root.add(g)
+}
+
+/**
+ * Path matching the yellow sketch:
+ * station (SE, behind fountain) → west along south edge → loop on west side diving underground → toward diner (NW).
+ */
+function buildTrackPath(): THREE.Vector3[] {
+  return [
+    // Platform at station (elevated)
+    new THREE.Vector3(14.5, 0.85, 12.5),
+    new THREE.Vector3(12.0, 0.85, 14.5),
+    // West along SE→SW plaza edge (screen-left from station)
+    new THREE.Vector3(8.0, 0.9, 16.5),
+    new THREE.Vector3(3.0, 0.95, 17.2),
+    new THREE.Vector3(-2.0, 1.0, 17.0),
+    new THREE.Vector3(-7.0, 1.0, 15.5),
+    new THREE.Vector3(-11.5, 0.9, 12.5),
+    // Left-side loop — start descending
+    new THREE.Vector3(-15.0, 0.55, 8.0),
+    new THREE.Vector3(-16.5, 0.15, 3.0),
+    new THREE.Vector3(-16.8, -0.6, -2.0),
+    new THREE.Vector3(-15.5, -1.5, -6.5),
+    new THREE.Vector3(-13.0, -2.4, -9.5),
+    // Underground toward diner (NW)
+    new THREE.Vector3(-10.5, -3.3, -11.5),
+    new THREE.Vector3(-7.5, -4.0, -13.0),
+    new THREE.Vector3(-4.0, -4.6, -14.0),
+    new THREE.Vector3(0.0, -5.0, -14.5),
+    new THREE.Vector3(4.0, -5.2, -14.0),
+  ]
+}
+
+function addDescentTrench(root: THREE.Group, points: THREE.Vector3[]) {
+  const wallMat = matPaint(0x2a2e36)
+  const dark = matPaint(0x12141a)
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i]
+    const b = points[i + 1]
+    if (a.y > 0.2 && b.y > 0.2) continue
+
+    const mid = a.clone().add(b).multiplyScalar(0.5)
+    const dir = b.clone().sub(a)
+    const len = dir.length()
+    const horiz = new THREE.Vector3(dir.x, 0, dir.z).normalize()
+    const yaw = Math.atan2(horiz.x, horiz.z)
+    const depth = Math.max(0.8, -mid.y + 0.6)
+    const wallH = depth + 0.8
+
+    const bed = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.25, len + 0.1), dark)
+    bed.position.set(mid.x, mid.y - 0.45, mid.z)
+    bed.rotation.y = yaw
+    root.add(bed)
+
+    for (const side of [-1, 1] as const) {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(0.3, wallH, len + 0.08), wallMat)
+      const perp = new THREE.Vector3(-horiz.z, 0, horiz.x)
+      wall.position.set(mid.x + perp.x * 1.9, mid.y + wallH * 0.25, mid.z + perp.z * 1.9)
+      wall.rotation.y = yaw
+      root.add(wall)
+    }
+  }
+}
+
+function addTunnelPortal(root: THREE.Group, ctx: PlazaSubwayContext, at: THREE.Vector3, toward: THREE.Vector3) {
+  const dir = toward.clone().sub(at)
+  dir.y = 0
+  dir.normalize()
+  const yaw = Math.atan2(dir.x, dir.z)
+
+  const g = new THREE.Group()
+  g.position.copy(at)
+  g.rotation.y = yaw
+
+  const dark = matPaint(0x1a1e26)
+  const arch = new THREE.Mesh(new THREE.BoxGeometry(4.4, 3.8, 1.4), dark)
+  arch.position.y = 0.4
+  g.add(arch)
+
+  const hole = new THREE.Mesh(
+    new THREE.BoxGeometry(2.9, 2.5, 1.6),
+    new THREE.MeshStandardMaterial({ color: 0x020208, roughness: 1 }),
+  )
+  hole.position.y = 0.2
+  g.add(hole)
+
+  const rim = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.22, 1.5), glow(METRO_BLUE, 0.8))
+  rim.position.y = 2.35
+  g.add(rim)
+  ctx.flickerMats.push({ mat: rim.material as THREE.MeshStandardMaterial, base: 0.8, t: 0.7 })
+
+  addSign(g, ctx, 'UNDERGROUND', NEON_ORANGE, 0, 2.65, -0.75, 0, 3.2, 0.4)
+
+  // Tunnel tube continuing underground
+  const tube = new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.8, 14), matPaint(0x0a0c10))
+  tube.position.set(0, 0.1, 8)
+  g.add(tube)
+
+  const glowStrip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 12), glow(NEON_CYAN, 0.55))
+  glowStrip.position.set(0, 1.2, 8)
+  g.add(glowStrip)
+
+  const light = new THREE.PointLight(METRO_BLUE, 0.55, 18, 2)
+  light.position.set(0, 1.5, 3)
   g.add(light)
 
   root.add(g)
 }
 
 /**
- * Above-ground metro station SE of plaza (behind fountain, opposite diner).
- * Platform + rails that slope down into an underground tunnel mouth.
+ * Metro: SE station behind fountain → west loop diving underground → toward diner.
  */
 export function buildPlazaSubway(ctx: PlazaSubwayContext): THREE.Group {
   const root = new THREE.Group()
   root.name = 'plaza-subway'
-  // Face toward diner / fountain (NW); local +Z runs SE into the tunnel
-  const yaw = Math.PI / 4
-  root.position.set(SUBWAY_X, 0, SUBWAY_Z)
-  root.rotation.y = yaw
 
-  // Local axes after root rotation: +Z is "into station back / toward tunnel", -Z is toward fountain
-  // We'll build in local space: platform along X, rails go +Z then down
+  buildStation(root, ctx)
 
-  const concrete = matPaint(0x3a3a44)
-  const darkConc = matPaint(0x2a2a32)
-  const steel = matMetal(0x6a7078)
-  const glass = glow(NEON_CYAN, 0.35)
-  glass.transparent = true
-  glass.opacity = 0.7
+  const path = buildTrackPath()
+  addRails(root, path, 1.15)
+  addDescentTrench(root, path)
 
-  // ── Station pavilion ─────────────────────────────────────────────────────
-  const pavilion = new THREE.Group()
-  pavilion.position.set(0, 0, -1.2)
+  // Portal where the loop goes underground (west side)
+  const portalAt = new THREE.Vector3(-16.2, -0.9, 0.5)
+  const portalToward = new THREE.Vector3(-15.0, -1.5, -5.0)
+  addTunnelPortal(root, ctx, portalAt, portalToward)
 
-  const base = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.25, 5.2), darkConc)
-  base.position.y = 0.12
-  base.receiveShadow = true
-  pavilion.add(base)
+  // Train waiting at station platform
+  buildMetroCar(root, 13.2, 0.85, 13.2, Math.PI / 4, ctx)
 
-  // Curved-ish roof: flat + side arcs via boxes
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.15, 5.8), steel)
-  roof.position.y = 4.1
-  roof.castShadow = true
-  pavilion.add(roof)
+  // Train entering the west loop / tunnel
+  buildMetroCar(root, -15.8, -0.35, 4.5, Math.PI * 0.95, ctx)
 
-  const roofGlow = new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.06, 5.4), glow(METRO_BLUE, 0.55))
-  roofGlow.position.y = 4.0
-  pavilion.add(roofGlow)
-  ctx.flickerMats.push({ mat: roofGlow.material as THREE.MeshStandardMaterial, base: 0.55, t: 0.4 })
-
-  // Support columns
-  for (const [cx, cz] of [[-3.5, -2], [3.5, -2], [-3.5, 2], [3.5, 2]] as const) {
-    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 3.9, 8), steel)
-    col.position.set(cx, 2.05, cz)
-    col.castShadow = true
-    pavilion.add(col)
-  }
-
-  // Back wall + ticket hall
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(8.2, 3.6, 0.35), concrete)
-  wall.position.set(0, 1.9, 2.3)
-  wall.castShadow = true
-  pavilion.add(wall)
-
-  // Glass front
-  for (let i = 0; i < 4; i++) {
-    const pane = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2.8), glass)
-    pane.position.set(-2.7 + i * 1.8, 1.7, -2.55)
-    pavilion.add(pane)
-  }
-  ctx.flickerMats.push({ mat: glass, base: 0.35, t: 1.2 })
-
-  // Entrance opening
-  const doorMat = glow(METRO_BLUE, 0.4)
-  doorMat.transparent = true
-  doorMat.opacity = 0.55
-  const door = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.6, 0.12), doorMat)
-  door.position.set(0, 1.4, -2.5)
-  pavilion.add(door)
-
-  // Escalator hint into station (steps going down inside)
-  for (let i = 0; i < 6; i++) {
-    const step = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 0.35), steel)
-    step.position.set(0, 0.2 + i * 0.18, -0.5 + i * 0.35)
-    pavilion.add(step)
-  }
-
-  addSign(pavilion, ctx, 'METRO', METRO_BLUE, 0, 3.55, -2.7, 0, 3.6, 0.7)
-  addSign(pavilion, ctx, 'LINE M1', NEON_YELLOW, 0, 3.05, -2.7, 0, 2.2, 0.35)
-  addSign(pavilion, ctx, 'M', METRO_BLUE, -3.6, 2.4, -2.6, 0, 0.7, 0.7)
-
-  // Pylon with M
-  const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.35, 5.5, 0.35), darkConc)
-  pylon.position.set(4.6, 2.75, -2.8)
-  pavilion.add(pylon)
-  addSign(pavilion, ctx, 'M', METRO_BLUE, 4.6, 4.8, -3.0, 0, 0.9, 0.9)
-
-  const pavilionLight = new THREE.PointLight(METRO_BLUE, 0.55, 14, 2)
-  pavilionLight.position.set(0, 3.5, 0)
-  pavilion.add(pavilionLight)
-
-  root.add(pavilion)
-
-  // ── Platform (beside pavilion, toward tunnel) ────────────────────────────
-  const platform = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.35, 10), concrete)
-  platform.position.set(0, 0.35, 5.5)
-  platform.receiveShadow = true
-  platform.castShadow = true
-  root.add(platform)
-
-  // Platform edge yellow line
-  const edge = new THREE.Mesh(new THREE.BoxGeometry(7.3, 0.04, 0.18), glow(NEON_YELLOW, 0.65))
-  edge.position.set(0, 0.55, 10.2)
-  root.add(edge)
-  ctx.flickerMats.push({ mat: edge.material as THREE.MeshStandardMaterial, base: 0.65, t: 2 })
-
-  // Platform canopy
-  const canopy = new THREE.Mesh(new THREE.BoxGeometry(7.8, 0.1, 9.5), steel)
-  canopy.position.set(0, 3.4, 5.5)
-  canopy.castShadow = true
-  root.add(canopy)
-  const canopyLight = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.05, 9), glow(NEON_CYAN, 0.4))
-  canopyLight.position.set(0, 3.32, 5.5)
-  root.add(canopyLight)
-
-  // Benches on platform
-  for (const bx of [-2.2, 2.2]) {
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 0.45), matPaint(0x2a2834))
-    seat.position.set(bx, 0.75, 4.5)
-    root.add(seat)
-    const back = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 0.08), matPaint(0x2a2834))
-    back.position.set(bx, 1.05, 4.28)
-    root.add(back)
-  }
-
-  addSign(root, ctx, '→ DOWNTOWN', NEON_CYAN, 0, 2.8, 1.5, 0, 3.2, 0.4)
-
-  // ── Rails: from platform → slope underground ─────────────────────────────
-  // Local +Z goes SE in world (away from fountain) after yaw rotation
-  const railPoints: THREE.Vector3[] = [
-    new THREE.Vector3(0, 0.58, 2.5),
-    new THREE.Vector3(0, 0.58, 8),
-    new THREE.Vector3(0, 0.4, 12),
-    new THREE.Vector3(0, -0.4, 16),
-    new THREE.Vector3(0, -1.6, 20),
-    new THREE.Vector3(0, -3.2, 24),
-    new THREE.Vector3(0, -4.5, 28),
-    new THREE.Vector3(0, -5.5, 34),
-  ]
-  addRails(root, railPoints, 1.15)
-
-  // Track bed / trench walls as it descends
-  for (let i = 2; i < railPoints.length - 1; i++) {
-    const p = railPoints[i]
-    const next = railPoints[i + 1]
-    const mid = p.clone().add(next).multiplyScalar(0.5)
-    const len = p.distanceTo(next)
-    const pitch = Math.atan2(next.y - p.y, next.z - p.z)
-
-    // Floor of trench
-    const bed = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.2, len + 0.1), darkConc)
-    bed.position.copy(mid)
-    bed.position.y -= 0.35
-    bed.rotation.x = -pitch
-    root.add(bed)
-
-    // Side retaining walls (taller as we go deeper)
-    const wallH = Math.min(4.5, 1.2 + Math.abs(mid.y) * 0.9)
-    for (const side of [-1, 1] as const) {
-      const rw = new THREE.Mesh(new THREE.BoxGeometry(0.28, wallH, len + 0.05), concrete)
-      rw.position.set(side * 1.85, mid.y + wallH / 2 - 0.8, mid.z)
-      rw.rotation.x = -pitch * 0.3
-      root.add(rw)
-    }
-  }
-
-  // Tunnel mouth portal
-  const portalZ = 22
-  const portalY = -2.8
-  const portal = new THREE.Group()
-  portal.position.set(0, portalY, portalZ)
-
-  const arch = new THREE.Mesh(new THREE.BoxGeometry(4.2, 4.0, 1.2), darkConc)
-  arch.position.y = 1.5
-  portal.add(arch)
-  // Hollow opening
-  const opening = new THREE.Mesh(
-    new THREE.BoxGeometry(2.8, 2.6, 1.4),
-    new THREE.MeshStandardMaterial({ color: 0x020208, roughness: 1, metalness: 0 }),
-  )
-  opening.position.y = 1.3
-  portal.add(opening)
-
-  const rim = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.2, 1.4), glow(METRO_BLUE, 0.75))
-  rim.position.y = 3.6
-  portal.add(rim)
-  ctx.flickerMats.push({ mat: rim.material as THREE.MeshStandardMaterial, base: 0.75, t: 0.8 })
-
-  addSign(portal, ctx, 'UNDERGROUND', NEON_ORANGE, 0, 3.9, -0.7, 0, 3.0, 0.4)
-
-  // Dark tunnel continuation beyond portal
-  const tunnel = new THREE.Mesh(new THREE.BoxGeometry(3.2, 3.0, 12), matPaint(0x0a0a10))
-  tunnel.position.set(0, 1.2, 7)
-  portal.add(tunnel)
-
-  const tunnelLight = new THREE.PointLight(METRO_BLUE, 0.5, 16, 2)
-  tunnelLight.position.set(0, 2.5, 2)
-  portal.add(tunnelLight)
-
-  root.add(portal)
-
-  // Ground cut / berm around descending trench (visible hole in plaza)
-  for (let i = 0; i < 5; i++) {
-    const z = 14 + i * 2.2
-    const y = -0.15 - i * 0.55
-    const berm = new THREE.Mesh(new THREE.BoxGeometry(5.5 + i * 0.3, 0.35, 2.0), matPaint(0x1a1820))
-    berm.position.set(0, y, z)
-    berm.receiveShadow = true
-    root.add(berm)
-  }
-
-  // Metro car parked at platform (emerging / waiting)
-  buildMetroCar(root, 0, 0.55, 6.5, 0, ctx)
-
-  // Second car further down entering tunnel (half sunk)
-  buildMetroCar(root, 0, -2.2, 20.5, 0, ctx)
-
-  // Colliders for pavilion + platform
-  if (ctx.colliders) {
-    const col1 = new THREE.Mesh(
-      new THREE.BoxGeometry(8.5, 4, 5),
-      new THREE.MeshBasicMaterial({ visible: false }),
-    )
-    col1.position.set(0, 2, -1.2)
-    root.add(col1)
-    ctx.colliders.push(col1)
-
-    const col2 = new THREE.Mesh(
-      new THREE.BoxGeometry(7.5, 1.2, 10),
-      new THREE.MeshBasicMaterial({ visible: false }),
-    )
-    col2.position.set(0, 0.6, 5.5)
-    root.add(col2)
-    ctx.colliders.push(col2)
+  // Grated vent covers along underground stretch near diner (surface clues)
+  const grateMat = matMetal(0x3a4050, 0.45, 0.7)
+  for (const [gx, gz] of [[-9, -12], [-6, -13], [-3, -13.5], [0, -14]] as const) {
+    const grate = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 1.2), grateMat)
+    grate.position.set(gx, 0.04, gz)
+    root.add(grate)
+    const glowLine = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.03, 0.08), glow(NEON_CYAN, 0.45))
+    glowLine.position.set(gx, 0.09, gz)
+    root.add(glowLine)
   }
 
   ctx.scene.add(root)
