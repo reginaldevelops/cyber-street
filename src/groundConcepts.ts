@@ -190,19 +190,18 @@ function buildGrateDeep(ctx: GroundBuildContext): THREE.Group {
       const cz = gz + tileSize / 2
 
       if (isGrate) {
-        const pit = new THREE.Mesh(new THREE.BoxGeometry(tileSize - 0.08, 0.12, tileSize - 0.08), solidMat)
-        pit.position.set(cx, -0.06, cz)
+        const pit = new THREE.Mesh(new THREE.BoxGeometry(tileSize - 0.22, 0.14, tileSize - 0.22), solidMat)
+        pit.position.set(cx, -0.07, cz)
         root.add(pit)
-        const grate = new THREE.Mesh(new THREE.PlaneGeometry(tileSize - 0.2, tileSize - 0.2), grateMat)
-        grate.rotation.x = -Math.PI / 2
-        grate.position.set(cx, 0.018, cz)
+        const grate = new THREE.Mesh(new THREE.BoxGeometry(tileSize - 0.32, 0.05, tileSize - 0.32), grateMat)
+        grate.position.set(cx, 0.02, cz)
         grate.receiveShadow = true
         root.add(grate)
-        addBolts(root, cx, cz, tileSize / 2, 0.022, boltMat)
+        addBolts(root, cx, cz, tileSize / 2 - 0.12, 0.048, boltMat)
       } else {
-        const slab = new THREE.Mesh(new THREE.PlaneGeometry(tileSize - 0.1, tileSize - 0.1), solidMat)
-        slab.rotation.x = -Math.PI / 2
-        slab.position.set(cx, 0.004, cz)
+        const slab = new THREE.Mesh(new THREE.BoxGeometry(tileSize - 0.28, 0.06, tileSize - 0.28), solidMat)
+        slab.position.set(cx, 0.03, cz)
+        slab.receiveShadow = true
         root.add(slab)
       }
     }

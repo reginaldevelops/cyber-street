@@ -1,51 +1,16 @@
 import * as THREE from 'three'
 import { PLAZA_HALF, PLAZA_SIZE, STREET_INNER, STREET_MID, STREET_OUTER, STREET_W, ws } from './worldConfig.js'
+import { addTiledStreetRing, makeTileAsphaltMat } from './tiledSurfaces.js'
 
-const ASPHALT = 0x1c1c22
 const MARKING_WHITE = 0xf2f2f2
 const CURB = 0x4a4848
 const NEON_CYAN = 0x00f6ff
-const MARK_Y = 0.022
-const STREET_SURFACE_Y = 0.008
+const MARK_Y = 0.065
+const STREET_SURFACE_Y = 0.06
 
 export interface PlazaStreetContext {
   scene: THREE.Scene
   flickerMats: { mat: THREE.MeshStandardMaterial; base: number; t: number }[]
-}
-
-function makeAsphaltTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas')
-  c.width = 512
-  c.height = 512
-  const g = c.getContext('2d')!
-  g.fillStyle = '#1c1c22'
-  g.fillRect(0, 0, 512, 512)
-  for (let i = 0; i < 9000; i++) {
-    const x = Math.random() * 512
-    const y = Math.random() * 512
-    const a = 0.04 + Math.random() * 0.08
-    g.fillStyle = Math.random() > 0.5 ? `rgba(28,28,34,${a})` : `rgba(36,36,44,${a})`
-    g.fillRect(x, y, 1 + Math.random() * 2, 1 + Math.random() * 2)
-  }
-  for (let i = 0; i < 18; i++) {
-    g.strokeStyle = `rgba(12,12,16,${0.15 + Math.random() * 0.2})`
-    g.lineWidth = 0.5 + Math.random()
-    g.beginPath()
-    g.moveTo(Math.random() * 512, Math.random() * 512)
-    g.lineTo(Math.random() * 512, Math.random() * 512)
-    g.stroke()
-  }
-  // Wet streaks
-  for (let i = 0; i < 6; i++) {
-    const wx = Math.random() * 512
-    g.fillStyle = `rgba(40,48,58,${0.08 + Math.random() * 0.06})`
-    g.fillRect(wx, 0, 8 + Math.random() * 20, 512)
-  }
-  const tex = new THREE.CanvasTexture(c)
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping
-  tex.repeat.set(4, 4)
-  tex.colorSpace = THREE.SRGBColorSpace
-  return tex
 }
 
 function markingMat(emissive = 0.05) {
@@ -62,38 +27,11 @@ function markingMat(emissive = 0.05) {
   return mat
 }
 
-/** Square ring mesh — no overlapping corner patches. */
-function buildStreetRingMesh(): THREE.Mesh {
-  const asphaltTex = makeAsphaltTexture()
-  const mat = new THREE.MeshStandardMaterial({
-    map: asphaltTex,
-    color: ASPHALT,
-    roughness: 0.92,
-    metalness: 0.08,
-  })
-
-  const outer = STREET_OUTER
-  const inner = STREET_INNER
-  const shape = new THREE.Shape()
-  shape.moveTo(-outer, -outer)
-  shape.lineTo(outer, -outer)
-  shape.lineTo(outer, outer)
-  shape.lineTo(-outer, outer)
-  shape.closePath()
-
-  const hole = new THREE.Path()
-  hole.moveTo(-inner, -inner)
-  hole.lineTo(inner, -inner)
-  hole.lineTo(inner, inner)
-  hole.lineTo(-inner, inner)
-  hole.closePath()
-  shape.holes.push(hole)
-
-  const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat)
-  mesh.rotation.x = -Math.PI / 2
-  mesh.position.y = 0.008
-  mesh.receiveShadow = true
-  return mesh
+/** Square ring of asphalt tiles around the plaza. */
+function buildStreetRingMesh(root: THREE.Group) {
+  const mat = makeTileAsphaltMat(0x1c1c22)
+  const alt = makeTileAsphaltMat(0x24242c)
+  addTiledStreetRing(root, mat, alt, STREET_INNER, STREET_OUTER, 1.5)
 }
 
 function addDashLine(
@@ -343,7 +281,7 @@ export function buildPlazaStreet(ctx: PlazaStreetContext): THREE.Group {
   const root = new THREE.Group()
   root.name = 'plaza-street'
 
-  root.add(buildStreetRingMesh())
+  buildStreetRingMesh(root)
   addCurbs(root)
   addStraightMarkings(root)
 

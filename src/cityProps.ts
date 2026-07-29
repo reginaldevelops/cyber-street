@@ -206,19 +206,18 @@ export function addUtilityBox(root: THREE.Group, x: number, z: number, rotY: num
 }
 
 export function addSidewalkTiles(root: THREE.Group, cx: number, cz: number, w: number, d: number) {
-  const tileMat = new THREE.MeshStandardMaterial({ color: 0x2a2834, roughness: 0.82, metalness: 0.12 })
-  const tileSize = 0.85
+  const tileA = new THREE.MeshStandardMaterial({ color: 0x2e2c38, roughness: 0.82, metalness: 0.12 })
+  const tileB = new THREE.MeshStandardMaterial({ color: 0x262430, roughness: 0.82, metalness: 0.12 })
+  const tileSize = 1.05
+  const gap = 0.1
+  const h = 0.07
   for (let x = cx - w / 2 + tileSize / 2; x < cx + w / 2; x += tileSize) {
     for (let z = cz - d / 2 + tileSize / 2; z < cz + d / 2; z += tileSize) {
-      if (rand(x * 17 + z * 31) > 0.92) continue
-      const tint = rand(x + z) > 0.5 ? 0x2e2c38 : 0x26242e
-      const tile = new THREE.Mesh(
-        new THREE.PlaneGeometry(tileSize - 0.04, tileSize - 0.04),
-        tileMat.clone(),
-      )
-      ;(tile.material as THREE.MeshStandardMaterial).color.setHex(tint)
-      tile.rotation.x = -Math.PI / 2
-      tile.position.set(x, 0.004, z)
+      const ix = Math.round(x / tileSize)
+      const iz = Math.round(z / tileSize)
+      const mat = (ix + iz) % 2 === 0 ? tileA : tileB
+      const tile = new THREE.Mesh(new THREE.BoxGeometry(tileSize - gap, h, tileSize - gap), mat)
+      tile.position.set(x, h / 2, z)
       tile.receiveShadow = true
       root.add(tile)
     }

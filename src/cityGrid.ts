@@ -2,13 +2,13 @@ import * as THREE from 'three'
 import { buildLot, civicKindAt, pickBuildingKind } from './cityBuildings.js'
 import { addBikeStall, addBenchAndBin, addLanternString, addPowerLines, addSidewalkTiles, addStreetCart, addTrafficLight, addUtilityBox, addVendingMachine } from './cityProps.js'
 import { PLAZA_EXCLUDE } from './worldConfig.js'
+import { addTilePlane, addTiledRoadStrip, makeTileAsphaltMat } from './tiledSurfaces.js'
 
 const BLOCK = 13
 const ROAD = 5
 const PITCH = BLOCK + ROAD
 const GRID_SPAN = 4
-const SURFACE_Y = 0.008
-const MARK_Y = 0.022
+const MARK_Y = 0.065
 const SIDEWALK_W = 1.1
 
 export const CITY_BLOCK = BLOCK
@@ -29,24 +29,6 @@ export interface CityGridContext {
 function seededRand(seed: number) {
   const x = Math.sin(seed * 127.1 + seed * 311.7) * 43758.5453
   return x - Math.floor(x)
-}
-
-function makeAsphaltTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas')
-  c.width = 512
-  c.height = 512
-  const g = c.getContext('2d')!
-  g.fillStyle = '#1c1c22'
-  g.fillRect(0, 0, 512, 512)
-  for (let i = 0; i < 6000; i++) {
-    g.fillStyle = Math.random() > 0.5 ? `rgba(28,28,34,${0.04 + Math.random() * 0.06})` : `rgba(36,36,44,${0.04 + Math.random() * 0.06})`
-    g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2)
-  }
-  const tex = new THREE.CanvasTexture(c)
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping
-  tex.repeat.set(6, 6)
-  tex.colorSpace = THREE.SRGBColorSpace
-  return tex
 }
 
 function markingMat() {
@@ -206,20 +188,16 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
   const root = new THREE.Group()
   root.name = 'city-grid'
 
-  const asphaltTex = makeAsphaltTexture()
-  const asphaltMat = new THREE.MeshStandardMaterial({
-    map: asphaltTex,
-    color: 0x1c1c22,
-    roughness: 0.22,
-    metalness: 0.58,
-  })
+  const asphaltMat = makeTileAsphaltMat(0x1c1c22)
+  const asphaltAlt = makeTileAsphaltMat(0x22222a)
   const curbMat = new THREE.MeshStandardMaterial({ color: 0x4a4848, roughness: 0.85, metalness: 0.15 })
   const markMat = markingMat()
 
   const citySpan = GRID_SPAN * 2 * PITCH + ROAD
+  // Dark grout underlay — shows through tile seams
   const base = new THREE.Mesh(
     new THREE.PlaneGeometry(citySpan + 8, citySpan + 8),
-    new THREE.MeshStandardMaterial({ color: 0x0e0c12, roughness: 0.92, metalness: 0.05 }),
+    new THREE.MeshStandardMaterial({ color: 0x08060c, roughness: 0.95, metalness: 0.05 }),
   )
   base.rotation.x = -Math.PI / 2
   base.position.y = -0.02
@@ -229,18 +207,10 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
   const lines: number[] = []
   for (let i = -GRID_SPAN; i <= GRID_SPAN; i++) lines.push(i * PITCH)
 
-  // Road surfaces — no markings yet
+  // Roads as discrete asphalt tiles (checker) instead of continuous strips
   for (const pos of lines) {
-    const vRoad = new THREE.Mesh(new THREE.PlaneGeometry(ROAD, citySpan), asphaltMat)
-    vRoad.rotation.x = -Math.PI / 2
-    vRoad.position.set(pos, SURFACE_Y, 0)
-    vRoad.receiveShadow = true
-    root.add(vRoad)
-    const hRoad = new THREE.Mesh(new THREE.PlaneGeometry(citySpan, ROAD), asphaltMat)
-    hRoad.rotation.x = -Math.PI / 2
-    hRoad.position.set(0, SURFACE_Y, pos)
-    hRoad.receiveShadow = true
-    root.add(hRoad)
+    addTiledRoadStrip(root, asphaltMat, asphaltAlt, pos, 0, ROAD, citySpan, true, 1.55)
+    addTiledRoadStrip(root, asphaltMat, asphaltAlt, 0, pos, ROAD, citySpan, false, 1.55)
   }
 
   // Markings per segment BETWEEN intersections (skip plaza zone)
@@ -323,14 +293,21 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
 
       const kind = civicKindAt(gx, gz) ?? pickBuildingKind(gx, gz, seed)
       if (kind !== 'park') {
-        const pad = new THREE.Mesh(
-          new THREE.PlaneGeometry(w, d),
-          new THREE.MeshStandardMaterial({ color: 0x141018, roughness: 0.88, metalness: 0.08 }),
-        )
-        pad.rotation.x = -Math.PI / 2
-        pad.position.set(cx, 0.004, cz)
-        pad.receiveShadow = true
-        root.add(pad)
+        const padMat = makeTileAsphaltMat(0x141018)
+        const padAlt = makeTileAsphaltMat(0x1a1620)
+        addTilePlane(root, {
+          cx,
+          cz,
+          width: w,
+          depth: d,
+          tileSize: 1.7,
+          y: 0.025,
+          height: 0.05,
+          gap: 0.12,
+          mat: padMat,
+          altMat: padAlt,
+          checker: true,
+        })
       }
 
       buildLot(kind, { root, ctx, cx, cz, w, d, seed, frontYaw: frontYawForBlock(cx, cz) })
