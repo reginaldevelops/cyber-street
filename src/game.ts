@@ -13,6 +13,7 @@ import {
 } from './groundConcepts.js'
 import { buildCitySurround } from './citySurround.js'
 import { loadHitemPlayer, updatePlayerAnimations } from './playerModel.js'
+import { buildPlayerCharacter } from './playerCharacter.js'
 import {
   applyNearestTextures,
   applyPixelResolution,
@@ -487,6 +488,30 @@ export class Game {
   // ── Speler ──────────────────────────────────────────────────────────────
 
   private buildIsoPlayer() {
+    // Voxel street-runner matches tiled/pixel world; GLB via ?player=rigged
+    const useGlb = new URLSearchParams(window.location.search).get('player') === 'rigged'
+      || new URLSearchParams(window.location.search).get('player') === 'hitem'
+      || new URLSearchParams(window.location.search).get('player') === 'legacy'
+
+    if (!useGlb) {
+      const rig = buildPlayerCharacter(NEON_CYAN, NEON_PINK, NEON_ORANGE)
+      this.player = rig.root
+      this.playerBody = rig.body
+      this.legL = rig.legL
+      this.legR = rig.legR
+      this.gun = rig.gun
+      this.gunHolder = rig.gunHolder
+      this.muzzle = rig.muzzle
+      this.muzzleLight = rig.muzzleLight
+      this.playerVisorMat = rig.visorMat
+      this.playerHasSkeleton = false
+      this.player.position.set(0, 0, ws(10))
+      this.player.visible = false
+      this.scene.add(this.player)
+      this.flickerMats.push({ mat: this.playerVisorMat, base: this.playerVisorMat.emissiveIntensity, t: Math.random() * 2 })
+      return
+    }
+
     this.player = new THREE.Group()
     this.playerBody = new THREE.Group()
     this.legL = new THREE.Group()
