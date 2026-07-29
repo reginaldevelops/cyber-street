@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { buildLot, civicKindAt, pickBuildingKind } from './cityBuildings.js'
-import { addBikeStall, addLanternString, addPowerLines, addSidewalkTiles, addVendingMachine } from './cityProps.js'
+import { addBikeStall, addBenchAndBin, addLanternString, addPowerLines, addSidewalkTiles, addStreetCart, addTrafficLight, addUtilityBox, addVendingMachine } from './cityProps.js'
 import { PLAZA_EXCLUDE } from './worldConfig.js'
 
 const BLOCK = 13
@@ -10,6 +10,12 @@ const GRID_SPAN = 4
 const SURFACE_Y = 0.008
 const MARK_Y = 0.022
 const SIDEWALK_W = 1.1
+
+export const CITY_BLOCK = BLOCK
+export const CITY_ROAD = ROAD
+export const CITY_PITCH = PITCH
+export const CITY_GRID_SPAN = GRID_SPAN
+export const CITY_SIDEWALK_W = SIDEWALK_W
 
 const NEON_CYAN = 0x00f6ff
 const NEON_ACCENTS = [NEON_CYAN, 0xff2d95, 0xffe14d, 0xff6622]
@@ -144,21 +150,54 @@ function addBlockSidewalkProps(
   maxZ: number,
   seed: number,
 ) {
-  const roll = seededRand(seed + 200)
-  if (roll > 0.42) return
-
   const cx = (minX + maxX) / 2
   const cz = (minZ + maxZ) / 2
   const yaw = frontYawForBlock(cx, cz)
   const inset = 0.55
+  const depth = Math.min((maxX - minX), (maxZ - minZ)) / 2 - inset
 
-  const sx = cx + Math.cos(yaw) * ((maxX - minX) / 2 - inset)
-  const sz = cz + Math.sin(yaw) * ((maxZ - minZ) / 2 - inset)
+  // Match building frontOffset convention: sin→X, cos→Z
+  const fx = Math.sin(yaw)
+  const fz = Math.cos(yaw)
+  const rx = Math.cos(yaw)
+  const rz = -Math.sin(yaw)
 
-  if (roll < 0.12) {
-    addBikeStall(root, sx, sz, yaw + Math.PI, seed)
-  } else if (roll < 0.22) {
-    addVendingMachine(root, sx, sz, yaw + Math.PI)
+  const frontX = cx + fx * depth
+  const frontZ = cz + fz * depth
+
+  const roll = seededRand(seed + 200)
+  if (roll < 0.18) {
+    addBikeStall(root, frontX + rx * 1.2, frontZ + rz * 1.2, yaw + Math.PI, seed)
+  } else if (roll < 0.32) {
+    addVendingMachine(root, frontX, frontZ, yaw + Math.PI)
+  } else if (roll < 0.48) {
+    addBenchAndBin(root, frontX, frontZ, yaw + Math.PI)
+  } else if (roll < 0.58) {
+    addStreetCart(root, ctx, frontX + rx * 0.8, frontZ + rz * 0.8, yaw + Math.PI, seed)
+  } else if (roll < 0.68) {
+    addUtilityBox(root, frontX - rx * 1.4, frontZ - rz * 1.4, yaw)
+  }
+
+  if (seededRand(seed + 311) > 0.72) {
+    const sideX = cx + rx * (Math.min(maxX - minX, maxZ - minZ) / 2 - 0.5)
+    const sideZ = cz + rz * (Math.min(maxX - minX, maxZ - minZ) / 2 - 0.5)
+    addBenchAndBin(root, sideX, sideZ, yaw + Math.PI / 2)
+  }
+}
+
+function addIntersectionExtras(root: THREE.Group, lines: number[]) {
+  for (let i = 0; i < lines.length; i++) {
+    for (let j = 0; j < lines.length; j++) {
+      const x = lines[i]
+      const z = lines[j]
+      if (Math.abs(x) < PLAZA_EXCLUDE && Math.abs(z) < PLAZA_EXCLUDE) continue
+      // Traffic lights on two corners of major avenues
+      if ((i + j) % 3 !== 0) continue
+      if (segmentOverlapsPlaza(x, x, z - 1, z + 1, true)) continue
+      const ox = ROAD * 0.42
+      const oz = ROAD * 0.42
+      addTrafficLight(root, x + ox, z + oz)
+    }
   }
 }
 
@@ -298,23 +337,31 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
 
       addBlockSidewalkProps(root, ctx, minX, maxX, minZ, maxZ, seed)
 
-      if (Math.abs(gx) + Math.abs(gz) <= 2 && seededRand(seed + 50) > 0.55) {
+      if (Math.abs(gx) + Math.abs(gz) <= 3 && seededRand(seed + 50) > 0.4) {
         const fo = frontYawForBlock(cx, cz)
-        const lx = cx + Math.cos(fo) * d * 0.42
-        const lz = cz + Math.sin(fo) * d * 0.42
-        addLanternString(root, lx - 1, lz, lx + 1, lz, seed)
+        const lx = cx + Math.sin(fo) * d * 0.42
+        const lz = cz + Math.cos(fo) * d * 0.42
+        const rx = Math.cos(fo)
+        const rz = -Math.sin(fo)
+        addLanternString(root, lx - rx * 1.2, lz - rz * 1.2, lx + rx * 1.2, lz + rz * 1.2, seed)
       }
 
-      if (seededRand(seed + 77) > 0.88) {
+      if (seededRand(seed + 77) > 0.78) {
         addPowerLines(root, minX + 1, cz, maxX - 1, cz, 3.4)
       }
 
-      // One lamp per block corner on sidewalk
-      if (seededRand(seed + 31) > 0.5) {
+      // Street lamps on sidewalk corners — denser near plaza
+      const lampChance = Math.abs(gx) + Math.abs(gz) <= 2 ? 0.25 : 0.45
+      if (seededRand(seed + 31) > lampChance) {
         addStreetLampOnSidewalk(root, ctx, minX + SIDEWALK_W * 0.6, minZ + SIDEWALK_W * 0.6, frontYawForBlock(cx, cz))
+      }
+      if (seededRand(seed + 44) > 0.65) {
+        addStreetLampOnSidewalk(root, ctx, maxX - SIDEWALK_W * 0.6, maxZ - SIDEWALK_W * 0.6, frontYawForBlock(cx, cz))
       }
     }
   }
+
+  addIntersectionExtras(root, lines)
 
   ctx.scene.add(root)
   return root

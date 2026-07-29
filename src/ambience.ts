@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { ws } from './worldConfig.js'
 import { FOUNTAIN_X, FOUNTAIN_Z } from './plazaFountain.js'
+import { CITY_PITCH, CITY_ROAD, CITY_GRID_SPAN } from './cityGrid.js'
+import { PLAZA_EXCLUDE } from './worldConfig.js'
 
 // ── Palette (matches game.ts neon constants) ────────────────────────────────
 export const NEON_CYAN = 0x00f6ff
@@ -674,6 +676,51 @@ function spawnFountainLoiterers(scene: THREE.Scene, droids: DroidNPC[]) {
   scene.add(walker.root)
 }
 
+/** Street NPCs walking sidewalk loops around city blocks (not on roads). */
+function spawnCityStreetLife(scene: THREE.Scene, droids: DroidNPC[]) {
+  const sidewalkInset = CITY_ROAD / 2 + 1.0
+  const routes: { cx: number; cz: number; half: number }[] = []
+
+  for (let gx = -CITY_GRID_SPAN; gx < CITY_GRID_SPAN; gx++) {
+    for (let gz = -CITY_GRID_SPAN; gz < CITY_GRID_SPAN; gz++) {
+      const cx = (gx + 0.5) * CITY_PITCH
+      const cz = (gz + 0.5) * CITY_PITCH
+      if (Math.abs(cx) < PLAZA_EXCLUDE && Math.abs(cz) < PLAZA_EXCLUDE) continue
+      // Sparse sampling — every other block-ish
+      if ((gx + gz * 3 + 10) % 5 !== 0) continue
+      const half = CITY_PITCH / 2 - sidewalkInset
+      routes.push({ cx, cz, half })
+    }
+  }
+
+  let placed = 0
+  for (const route of routes) {
+    if (placed >= 10) break
+    const walker = buildDroidNPC(route.cx + route.half, route.cz, 'walking')
+    walker.root.userData.spawn = new THREE.Vector2(route.cx, route.cz)
+    const h = route.half
+    walker.path = [
+      new THREE.Vector2(h, h * 0.6),
+      new THREE.Vector2(h * 0.6, -h),
+      new THREE.Vector2(-h, -h * 0.5),
+      new THREE.Vector2(-h * 0.5, h),
+      new THREE.Vector2(h, h * 0.6),
+    ]
+    droids.push(walker)
+    scene.add(walker.root)
+    placed++
+
+    // Idle loiterer near block front
+    if (placed < 10 && (placed % 2 === 0)) {
+      const idle = buildDroidNPC(route.cx + h * 0.3, route.cz + h * 0.85, 'idle')
+      idle.root.rotation.y = Math.PI + (placed * 0.7)
+      droids.push(idle)
+      scene.add(idle.root)
+      placed++
+    }
+  }
+}
+
 export function populateSceneAmbience(
   scene: THREE.Scene,
   _flickerMats: { mat: THREE.MeshStandardMaterial; base: number; t: number }[],
@@ -687,10 +734,16 @@ export function populateSceneAmbience(
   scene.add(marketDroid.root)
 
   spawnFountainLoiterers(scene, state.droids)
+  spawnCityStreetLife(scene, state.droids)
 
   const vent = buildSteamVent(ws(6), 0.02, -ws(6))
   state.steamVents.push(vent)
   scene.add(vent.grate, vent.steam)
+
+  // Extra steam near city edge for atmosphere
+  const vent2 = buildSteamVent(-ws(18), 0.02, ws(14))
+  state.steamVents.push(vent2)
+  scene.add(vent2.grate, vent2.steam)
 
   return state
 }
