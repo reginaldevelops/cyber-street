@@ -352,12 +352,12 @@ export function buildPlazaStreet(ctx: PlazaStreetContext): THREE.Group {
     addStreetLamp(root, ctx, lampInset, t, Math.PI)
   }
 
-  // School bus — parallel geparkeerd op oostelijke rijbaan, wielen op asfalt
+  // School bus — parallel on east lane, wheels on asphalt (y=0), not sunken
   const bus = buildSchoolBus()
-  const parkX = STREET_MID + STREET_W * 0.28
-  const parkZ = ws(2.5)
-  bus.position.set(parkX, STREET_SURFACE_Y, parkZ)
-  bus.rotation.y = Math.PI
+  const parkX = STREET_MID + STREET_W * 0.2
+  const parkZ = -10
+  bus.position.set(parkX, 0, parkZ)
+  bus.rotation.y = 0
   root.add(bus)
 
   ctx.scene.add(root)
