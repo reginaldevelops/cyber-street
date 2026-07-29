@@ -13,14 +13,22 @@ import {
 } from './groundConcepts.js'
 import { buildCitySurround } from './citySurround.js'
 import { loadHitemPlayer, updatePlayerAnimations } from './playerModel.js'
+import {
+  ISO_CAM_OFFSET as ISO_CAM_DIST,
+  ISO_FRUSTUM,
+  PLAZA_HALF,
+  PLAZA_SIZE,
+  PLAYER_BOUNDARY_INSET,
+  WORLD_SCALE,
+  ws,
+} from './worldConfig.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.4
 const SPRINT_SPEED = 8.8
 const ACCEL = 14
 const DECEL = 11
 
-const ISO_FRUSTUM = 34
-const ISO_CAM_OFFSET = new THREE.Vector3(26, 26, 26)
+const ISO_CAM_OFFSET = new THREE.Vector3(ISO_CAM_DIST, ISO_CAM_DIST, ISO_CAM_DIST)
 const ISO_FOLLOW = 9
 const ISO_FORWARD = new THREE.Vector3(-1, 0, -1).normalize()
 const ISO_RIGHT = new THREE.Vector3(1, 0, -1).normalize()
@@ -29,10 +37,8 @@ const FIRE_INTERVAL = 0.115
 const GUN_RANGE = 90
 const AIM_ASSIST_ANGLE = 0.055
 
-const PLAZA_SIZE = 40
-const PLAZA_HALF = PLAZA_SIZE / 2
-const PLAYER_LIMIT_X = PLAZA_HALF - 2.5
-const PLAYER_LIMIT_Z = PLAZA_HALF - 2.5
+const PLAYER_LIMIT_X = PLAZA_HALF - PLAYER_BOUNDARY_INSET
+const PLAYER_LIMIT_Z = PLAZA_HALF - PLAYER_BOUNDARY_INSET
 
 const ENEMY_COUNT = 3
 const ENEMY_HP = 3
@@ -275,7 +281,7 @@ export class Game {
 
   private buildWorld() {
     this.scene.background = new THREE.Color(0x141024)
-    this.scene.fog = new THREE.FogExp2(0x221636, 0.016)
+    this.scene.fog = new THREE.FogExp2(0x221636, 0.016 / WORLD_SCALE)
 
     this.scene.add(new THREE.AmbientLight(0x665577, 0.45))
 
@@ -287,11 +293,11 @@ export class Game {
     moon.castShadow = true
     moon.shadow.mapSize.set(2048, 2048)
     moon.shadow.camera.near = 1
-    moon.shadow.camera.far = 100
-    moon.shadow.camera.left = -42
-    moon.shadow.camera.right = 42
-    moon.shadow.camera.top = 42
-    moon.shadow.camera.bottom = -42
+    moon.shadow.camera.far = 100 * WORLD_SCALE
+    moon.shadow.camera.left = -42 * WORLD_SCALE
+    moon.shadow.camera.right = 42 * WORLD_SCALE
+    moon.shadow.camera.top = 42 * WORLD_SCALE
+    moon.shadow.camera.bottom = -42 * WORLD_SCALE
     this.scene.add(moon)
 
     const fill = new THREE.DirectionalLight(0xff88cc, 0.22)
@@ -447,12 +453,13 @@ export class Game {
   }
 
   private makeRain() {
-    const count = 1300
+    const count = 1300 * WORLD_SCALE
+    const rainSpan = PLAZA_SIZE + ws(8)
     const positions = new Float32Array(count * 3)
     for (let i = 0; i < count; i++) {
-      positions[i * 3] = THREE.MathUtils.randFloatSpread(PLAZA_SIZE + 8)
-      positions[i * 3 + 1] = THREE.MathUtils.randFloat(0.2, 20)
-      positions[i * 3 + 2] = THREE.MathUtils.randFloatSpread(PLAZA_SIZE + 8)
+      positions[i * 3] = THREE.MathUtils.randFloatSpread(rainSpan)
+      positions[i * 3 + 1] = THREE.MathUtils.randFloat(0.2, ws(20))
+      positions[i * 3 + 2] = THREE.MathUtils.randFloatSpread(rainSpan)
     }
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
@@ -480,7 +487,7 @@ export class Game {
     this.playerVisorMat = new THREE.MeshStandardMaterial({ color: 0x00f6ff, emissive: 0x00f6ff, emissiveIntensity: 1 })
 
     this.player.add(this.playerBody)
-    this.player.position.set(0, 0, 10)
+    this.player.position.set(0, 0, ws(10))
     this.player.visible = false
     this.scene.add(this.player)
 
@@ -506,7 +513,7 @@ export class Game {
       this.playerRunAction = rig.runAction
       this.playerHasSkeleton = rig.hasSkeleton
 
-      this.player.position.set(0, 0, 10)
+      this.player.position.set(0, 0, ws(10))
       this.player.visible = this.playing
       this.scene.add(this.player)
 
@@ -1152,7 +1159,7 @@ export class Game {
   private updateAtmosphere(dt: number, elapsed: number) {
     // Regen valt en wrapt terug omhoog
     const pos = this.rain.geometry.getAttribute('position') as THREE.BufferAttribute
-    const spread = (PLAZA_SIZE + 8) / 2
+    const spread = (PLAZA_SIZE + ws(8)) / 2
     for (let i = 0; i < pos.count; i++) {
       let y = pos.getY(i) - 19 * dt
       if (y < 0) y += 20

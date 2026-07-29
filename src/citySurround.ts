@@ -1,10 +1,19 @@
 import * as THREE from 'three'
 import { buildModernTower, towerColliderMeshes } from './modernBuilding.js'
 import { buildPlazaStreet } from './plazaStreet.js'
-
-// ── Palette (purple-grey cyber-industrial) ────────────────────────────────
-export const PLAZA_HALF = 20
-const PLAZA_SIZE = PLAZA_HALF * 2
+import {
+  PERIM_INNER,
+  PERIM_OUTER,
+  PLAZA_HALF,
+  PLAZA_SIZE,
+  SHOP_INSET,
+  SKYLINE_FAR,
+  SKYLINE_NEAR,
+  STREET_INNER,
+  STREET_OUTER,
+  WORLD_SCALE,
+  ws,
+} from './worldConfig.js'
 
 const WALL_DARK = 0x1a1624
 const WALL_MID = 0x2a2436
@@ -27,14 +36,6 @@ const BRICK_RED = 0x4a2828
 const BRICK_TAN = 0x3a3428
 const BRICK_GREY = 0x323038
 const BRICK_ACCENT = [BRICK_RED, BRICK_TAN, BRICK_GREY, WALL_MID] as const
-
-const SHOP_INSET = PLAZA_HALF - 1.5 // 18.5 — matches game.ts courtyard shops
-const STREET_INNER = PLAZA_HALF + 0.5 // 20.5 — just outside plaza trim
-const STREET_OUTER = PLAZA_HALF + 6.5 // 26.5 — outer curb
-const PERIM_INNER = PLAZA_HALF + 7 // 27 — back of street
-const PERIM_OUTER = PLAZA_HALF + 13 // 33 — facade outer face
-const SKYLINE_NEAR = PLAZA_HALF + 16 // 36
-const SKYLINE_FAR = PLAZA_HALF + 38 // 58
 
 export interface CitySurroundContext {
   scene: THREE.Scene
@@ -250,18 +251,18 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
   const depthSpan = PERIM_OUTER - PERIM_INNER
 
   const sides: Side[] = ['north', 'south', 'east', 'west']
-  const gapForShops = 8.5 // leave room for existing shop/corner volumes at ±18.5
+  const gapForShops = ws(8.5) // leave room for existing shop/corner volumes at ±18.5
 
   for (const side of sides) {
     const spans: [number, number][] = []
-    const axisMin = -PLAZA_HALF + 4
-    const axisMax = PLAZA_HALF - 4
+    const axisMin = -PLAZA_HALF + ws(4)
+    const axisMax = PLAZA_HALF - ws(4)
 
     // Split around corner blocks & shop bays
     if (side === 'north' || side === 'south') {
       spans.push([axisMin, -gapForShops], [-gapForShops + 1, gapForShops - 1], [gapForShops, axisMax])
     } else {
-      spans.push([axisMin, -12], [-8, 8], [12, axisMax])
+      spans.push([axisMin, -ws(12)], [-ws(8), ws(8)], [ws(12), axisMax])
     }
 
     let segIdx = 0
@@ -319,7 +320,7 @@ export function buildSkylineBackdrop(ctx: CitySurroundContext): THREE.Group {
 
   const layers = [
     { zOff: SKYLINE_NEAR, count: 7, hMin: 14, hMax: 28, wMin: 3, wMax: 7 },
-    { zOff: SKYLINE_NEAR + 10, count: 9, hMin: 20, hMax: 42, wMin: 2.5, wMax: 6 },
+    { zOff: SKYLINE_NEAR + ws(10), count: 9, hMin: 20, hMax: 42, wMin: 2.5, wMax: 6 },
     { zOff: SKYLINE_FAR, count: 11, hMin: 28, hMax: 58, wMin: 2, wMax: 5 },
   ]
 
@@ -333,8 +334,8 @@ export function buildSkylineBackdrop(ctx: CitySurroundContext): THREE.Group {
   for (const layer of layers) {
     for (let ring = 0; ring < 4; ring++) {
       const side = ring as 0 | 1 | 2 | 3
-      const alongMin = -PLAZA_HALF - 8
-      const alongMax = PLAZA_HALF + 8
+      const alongMin = -PLAZA_HALF - ws(8)
+      const alongMax = PLAZA_HALF + ws(8)
       const step = (alongMax - alongMin) / layer.count
 
       for (let i = 0; i < layer.count; i++) {
@@ -579,12 +580,12 @@ export function buildStreetExtensions(ctx: CitySurroundContext): THREE.Group {
   // Instanced grates + steam vents along streets
   const grateGeo = new THREE.BoxGeometry(0.9, 0.04, 0.9)
   const grateMat = new THREE.MeshStandardMaterial({ color: GRATE, roughness: 0.7, metalness: 0.5 })
-  const grateCount = 24
+  const grateCount = 24 * WORLD_SCALE
   const grates = new THREE.InstancedMesh(grateGeo, grateMat, grateCount)
   const dummy = new THREE.Object3D()
   for (let i = 0; i < grateCount; i++) {
     const side = i % 4
-    const t = -PLAZA_HALF + 4 + (i / 4) * 7
+    const t = -PLAZA_HALF + ws(4) + (i / 4) * ws(7)
     const mid = (STREET_INNER + STREET_OUTER) / 2
     if (side === 0) dummy.position.set(t, 0.03, -mid)
     else if (side === 1) dummy.position.set(t, 0.03, mid)
@@ -605,7 +606,7 @@ export function buildStreetExtensions(ctx: CitySurroundContext): THREE.Group {
     blending: THREE.AdditiveBlending,
   })
   const steamSpots: [number, number][] = [
-    [-16, -23], [8, -23], [18, 23], [-10, 23], [-23, 6], [23, -8],
+    [-ws(16), -ws(23)], [ws(8), -ws(23)], [ws(18), ws(23)], [-ws(10), ws(23)], [-ws(23), ws(6)], [ws(23), -ws(8)],
   ]
   for (const [sx, sz] of steamSpots) {
     const puff = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 2.4), steamMat)
@@ -628,8 +629,8 @@ export function buildElevatedWalkways(ctx: CitySurroundContext): THREE.Group {
   const walkY = 5.6
   const walkW = 1.35
   const walkDepth = 1.1
-  const zNorth = -SHOP_INSET - 3.2
-  const zSouth = SHOP_INSET + 3.2
+  const zNorth = -SHOP_INSET - ws(3.2)
+  const zSouth = SHOP_INSET + ws(3.2)
 
   const bridges: [number, number, number, number][] = [
     [-14, zNorth, 10, 0],

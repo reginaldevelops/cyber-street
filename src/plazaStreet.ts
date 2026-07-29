@@ -1,11 +1,5 @@
 import * as THREE from 'three'
-
-const PLAZA_HALF = 20
-const PLAZA_SIZE = PLAZA_HALF * 2
-const STREET_INNER = PLAZA_HALF + 0.5
-const STREET_OUTER = PLAZA_HALF + 6.5
-const STREET_MID = (STREET_INNER + STREET_OUTER) / 2
-const STREET_W = STREET_OUTER - STREET_INNER
+import { PLAZA_HALF, PLAZA_SIZE, STREET_INNER, STREET_MID, STREET_OUTER, STREET_W, ws } from './worldConfig.js'
 
 const ASPHALT = 0x1c1c22
 const MARKING_WHITE = 0xf2f2f2
@@ -299,7 +293,7 @@ function buildSchoolBus(): THREE.Group {
 
 /** Lane markings on straight segments only — avoids corner clutter. */
 function addStraightMarkings(root: THREE.Group) {
-  const straightLen = PLAZA_SIZE - 1.2
+  const straightLen = PLAZA_SIZE - ws(1.2)
   const innerLine = STREET_INNER + 0.28
   const outerLine = STREET_OUTER - 0.28
 
@@ -334,24 +328,24 @@ export function buildPlazaStreet(ctx: PlazaStreetContext): THREE.Group {
   addStraightMarkings(root)
 
   const crossSpan = STREET_W - 0.6
-  const crossDepth = 3.6
+  const crossDepth = ws(3.6)
 
   // West (linker): 2 zebrapaden op noord- en zuidarm
-  addZebraCrossing(root, -STREET_MID, -14, crossSpan, crossDepth, Math.PI / 2)
-  addStopBar(root, -STREET_MID, -16.2, crossSpan, true)
-  addZebraCrossing(root, -STREET_MID, 14, crossSpan, crossDepth, Math.PI / 2)
-  addStopBar(root, -STREET_MID, 16.2, crossSpan, true)
+  addZebraCrossing(root, -STREET_MID, -ws(14), crossSpan, crossDepth, Math.PI / 2)
+  addStopBar(root, -STREET_MID, -ws(16.2), crossSpan, true)
+  addZebraCrossing(root, -STREET_MID, ws(14), crossSpan, crossDepth, Math.PI / 2)
+  addStopBar(root, -STREET_MID, ws(16.2), crossSpan, true)
 
   // East (rechter): 2 zebrapaden
-  addZebraCrossing(root, STREET_MID, -14, crossSpan, crossDepth, Math.PI / 2)
-  addStopBar(root, STREET_MID, -16.2, crossSpan, true)
-  addZebraCrossing(root, STREET_MID, 14, crossSpan, crossDepth, Math.PI / 2)
-  addStopBar(root, STREET_MID, 16.2, crossSpan, true)
+  addZebraCrossing(root, STREET_MID, -ws(14), crossSpan, crossDepth, Math.PI / 2)
+  addStopBar(root, STREET_MID, -ws(16.2), crossSpan, true)
+  addZebraCrossing(root, STREET_MID, ws(14), crossSpan, crossDepth, Math.PI / 2)
+  addStopBar(root, STREET_MID, ws(16.2), crossSpan, true)
 
   // Lamps on outer sidewalk — skip corner zones
-  const lampSpacing = 9
-  const lampInset = STREET_OUTER - 0.55
-  for (let t = -PLAZA_HALF + 6; t <= PLAZA_HALF - 6; t += lampSpacing) {
+  const lampSpacing = ws(9)
+  const lampInset = STREET_OUTER - ws(0.55)
+  for (let t = -PLAZA_HALF + ws(6); t <= PLAZA_HALF - ws(6); t += lampSpacing) {
     addStreetLamp(root, ctx, t, -lampInset, Math.PI / 2)
     addStreetLamp(root, ctx, t, lampInset, -Math.PI / 2)
     addStreetLamp(root, ctx, -lampInset, t, 0)
@@ -361,7 +355,7 @@ export function buildPlazaStreet(ctx: PlazaStreetContext): THREE.Group {
   // School bus — parallel geparkeerd op oostelijke rijbaan, wielen op asfalt
   const bus = buildSchoolBus()
   const parkX = STREET_MID + STREET_W * 0.28
-  const parkZ = 2.5
+  const parkZ = ws(2.5)
   bus.position.set(parkX, STREET_SURFACE_Y, parkZ)
   bus.rotation.y = Math.PI
   root.add(bus)
@@ -369,5 +363,3 @@ export function buildPlazaStreet(ctx: PlazaStreetContext): THREE.Group {
   ctx.scene.add(root)
   return root
 }
-
-export { PLAZA_HALF, STREET_INNER, STREET_OUTER, STREET_MID }

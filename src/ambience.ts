@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { ws } from './worldConfig.js'
 
 // ── Palette (matches game.ts neon constants) ────────────────────────────────
 export const NEON_CYAN = 0x00f6ff
@@ -611,12 +612,12 @@ export function populateSceneAmbience(
   ensureSharedMaterials()
   const state: AmbienceState = { droids: [], holoPanels: [], steamVents: [], critters: [] }
 
-  const marketDroid = buildDroidNPC(2, 3, 'idle')
+  const marketDroid = buildDroidNPC(ws(2), ws(3), 'idle')
   marketDroid.root.rotation.y = 0.8
   state.droids.push(marketDroid)
   scene.add(marketDroid.root)
 
-  const vent = buildSteamVent(6, 0.02, -6)
+  const vent = buildSteamVent(ws(6), 0.02, -ws(6))
   state.steamVents.push(vent)
   scene.add(vent.grate, vent.steam)
 

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { PLAZA_HALF, PLAZA_SIZE, TILE_SIZE, ws } from './worldConfig.js'
 
 export type GroundConceptId = 'grate-deep' | 'grate-cargo' | 'grate-neon-drain' | 'grate-rust-pipe'
 
@@ -46,11 +47,6 @@ const NEON_CYAN = 0x00f6ff
 const NEON_PINK = 0xff2d95
 const NEON_YELLOW = 0xffe14d
 const NEON_ORANGE = 0xff6622
-
-const PLAZA_HALF = 20
-const PLAZA_SIZE = PLAZA_HALF * 2
-const STREET_INNER = PLAZA_HALF + 0.5
-const STREET_OUTER = PLAZA_HALF + 6.5
 
 export interface GroundBuildContext {
   scene: THREE.Scene
@@ -186,9 +182,9 @@ function buildGrateDeep(ctx: GroundBuildContext): THREE.Group {
   const solidMat = new THREE.MeshStandardMaterial({ color: 0x121018, roughness: 0.78, metalness: 0.25 })
   const boltMat = new THREE.MeshStandardMaterial({ color: 0x5a6068, roughness: 0.35, metalness: 0.92 })
 
-  const tileSize = 3.2
-  for (let gz = -PLAZA_HALF + 1.6; gz < PLAZA_HALF; gz += tileSize) {
-    for (let gx = -PLAZA_HALF + 1.6; gx < PLAZA_HALF; gx += tileSize) {
+  const tileSize = TILE_SIZE
+  for (let gz = -PLAZA_HALF + ws(1.6); gz < PLAZA_HALF; gz += tileSize) {
+    for (let gx = -PLAZA_HALF + ws(1.6); gx < PLAZA_HALF; gx += tileSize) {
       const isGrate = (Math.floor(gx / tileSize) + Math.floor(gz / tileSize)) % 2 === 0
       const cx = gx + tileSize / 2
       const cz = gz + tileSize / 2
@@ -213,7 +209,7 @@ function buildGrateDeep(ctx: GroundBuildContext): THREE.Group {
   }
 
   // Central drain hub
-  const hubGrate = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.05, 8), grateMat)
+  const hubGrate = new THREE.Mesh(new THREE.CylinderGeometry(ws(1.6), ws(1.6), 0.05, 8), grateMat)
   hubGrate.position.y = 0.025
   root.add(hubGrate)
 
@@ -248,7 +244,7 @@ function buildGrateCargo(ctx: GroundBuildContext): THREE.Group {
 
   // Forklift lanes (solid steel)
   for (const lane of [-6, 6] as number[]) {
-    const path = new THREE.Mesh(new THREE.PlaneGeometry(2.8, PLAZA_SIZE - 4), steelMat)
+    const path = new THREE.Mesh(new THREE.PlaneGeometry(ws(2.8), PLAZA_SIZE - ws(4)), steelMat)
     path.rotation.x = -Math.PI / 2
     path.position.set(lane, 0.006, 0)
     root.add(path)
@@ -262,7 +258,7 @@ function buildGrateCargo(ctx: GroundBuildContext): THREE.Group {
   }
 
   // Grate zones between lanes
-  for (let gz = -PLAZA_HALF + 2; gz < PLAZA_HALF; gz += 3.5) {
+  for (let gz = -PLAZA_HALF + ws(2); gz < PLAZA_HALF; gz += ws(3.5)) {
     for (const gx of [-13, -2.5, 2.5, 13] as number[]) {
       const gtile = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 3.2), grateMat)
       gtile.rotation.x = -Math.PI / 2
@@ -279,13 +275,13 @@ function buildGrateCargo(ctx: GroundBuildContext): THREE.Group {
     const labelMat = new THREE.MeshStandardMaterial({ map: labelTex, emissive: NEON_ORANGE, emissiveMap: labelTex, emissiveIntensity: 0.55 })
     const label = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 0.55), labelMat)
     label.rotation.x = -Math.PI / 2
-    label.position.set(zx, 0.014, PLAZA_HALF - 3)
+    label.position.set(zx, 0.014, PLAZA_HALF - ws(3))
     root.add(label)
     ctx.flickerMats.push({ mat: labelMat, base: 0.55, t: Math.random() * 4 })
 
     const zonePlate = new THREE.Mesh(new THREE.PlaneGeometry(8, 6), steelMat)
     zonePlate.rotation.x = -Math.PI / 2
-    zonePlate.position.set(zx, 0.005, PLAZA_HALF - 8)
+    zonePlate.position.set(zx, 0.005, PLAZA_HALF - ws(8))
     root.add(zonePlate)
   }
 
@@ -302,7 +298,7 @@ function buildGrateCargo(ctx: GroundBuildContext): THREE.Group {
     )
     stripe.rotation.x = -Math.PI / 2
     stripe.rotation.z = Math.PI / 4
-    stripe.position.set(i, 0.016, -PLAZA_HALF + 0.55)
+    stripe.position.set(i, 0.016, -PLAZA_HALF + ws(0.55))
     root.add(stripe)
   }
 
@@ -334,9 +330,9 @@ function buildGrateNeonDrain(ctx: GroundBuildContext): THREE.Group {
   const grateMat = new THREE.MeshStandardMaterial({ map: grateTex, color: 0x3a4858, roughness: 0.3, metalness: 0.9 })
   const solidMat = new THREE.MeshStandardMaterial({ color: 0x100e18, roughness: 0.7, metalness: 0.3 })
 
-  const tileSize = 3.0
-  for (let gz = -PLAZA_HALF + 1.5; gz < PLAZA_HALF; gz += tileSize) {
-    for (let gx = -PLAZA_HALF + 1.5; gx < PLAZA_HALF; gx += tileSize) {
+  const tileSize = ws(3.0)
+  for (let gz = -PLAZA_HALF + ws(1.5); gz < PLAZA_HALF; gz += tileSize) {
+    for (let gx = -PLAZA_HALF + ws(1.5); gx < PLAZA_HALF; gx += tileSize) {
       const isGrate = (Math.floor(gx / 3) + Math.floor(gz / 3)) % 2 === 0
       const cx = gx + tileSize / 2
       const cz = gz + tileSize / 2
@@ -364,9 +360,9 @@ function buildGrateNeonDrain(ctx: GroundBuildContext): THREE.Group {
   }
 
   // Grid drain network — horizontal + vertical every 5 units
-  for (let i = -PLAZA_HALF + 2.5; i <= PLAZA_HALF; i += 5) {
-    addDrainChannel(root, ctx, i, 0, PLAZA_SIZE - 4, Math.PI / 2, i % 10 === 0 ? NEON_PINK : NEON_CYAN, 0.32)
-    addDrainChannel(root, ctx, 0, i, PLAZA_SIZE - 4, 0, i % 10 === 0 ? NEON_PINK : NEON_CYAN, 0.32)
+  for (let i = -PLAZA_HALF + ws(2.5); i <= PLAZA_HALF; i += ws(5)) {
+    addDrainChannel(root, ctx, i, 0, PLAZA_SIZE - ws(4), Math.PI / 2, i % ws(10) === 0 ? NEON_PINK : NEON_CYAN, 0.32)
+    addDrainChannel(root, ctx, 0, i, PLAZA_SIZE - ws(4), 0, i % ws(10) === 0 ? NEON_PINK : NEON_CYAN, 0.32)
   }
 
   // Junction nodes
@@ -394,7 +390,7 @@ function buildGrateNeonDrain(ctx: GroundBuildContext): THREE.Group {
   hubGlow.rotation.x = -Math.PI / 2
   hubGlow.position.y = 0.024
   root.add(hubGlow)
-  const hubGrate = new THREE.Mesh(new THREE.CircleGeometry(2.0, 16), grateMat)
+  const hubGrate = new THREE.Mesh(new THREE.CircleGeometry(ws(2.0), 16), grateMat)
   hubGrate.rotation.x = -Math.PI / 2
   hubGrate.position.y = 0.026
   root.add(hubGrate)
@@ -425,8 +421,8 @@ function buildGrateRustPipe(ctx: GroundBuildContext): THREE.Group {
   const rustMat = new THREE.MeshStandardMaterial({ color: 0x6a4030, roughness: 0.88, metalness: 0.35 })
 
   // Mixed tile sizes
-  for (let gz = -PLAZA_HALF + 1; gz < PLAZA_HALF; ) {
-    for (let gx = -PLAZA_HALF + 1; gx < PLAZA_HALF; ) {
+  for (let gz = -PLAZA_HALF + ws(1); gz < PLAZA_HALF; ) {
+    for (let gx = -PLAZA_HALF + ws(1); gx < PLAZA_HALF; ) {
       const big = rand(gx + gz) > 0.65
       const sz = big ? 5.5 : 2.8
       const isGrate = (Math.floor(gx) + Math.floor(gz)) % 2 === 0
@@ -478,7 +474,7 @@ function buildGrateRustPipe(ctx: GroundBuildContext): THREE.Group {
 
   // Cable tray channels
   for (const side of [-1, 1]) {
-    const tray = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, PLAZA_SIZE - 6), new THREE.MeshStandardMaterial({ color: 0x2a2830, roughness: 0.5, metalness: 0.7 }))
+    const tray = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, PLAZA_SIZE - ws(6)), new THREE.MeshStandardMaterial({ color: 0x2a2830, roughness: 0.5, metalness: 0.7 }))
     tray.position.set(side * 16, 0.04, 0)
     root.add(tray)
     for (let c = -14; c <= 14; c += 4) {
@@ -521,8 +517,8 @@ function buildGrateRustPipe(ctx: GroundBuildContext): THREE.Group {
     root.add(oil)
   }
 
-  addDrainChannel(root, ctx, -PLAZA_HALF + 1.3, 0, PLAZA_SIZE - 3, Math.PI / 2, NEON_ORANGE, 0.36)
-  addDrainChannel(root, ctx, 0, PLAZA_HALF - 1.3, PLAZA_SIZE - 3, 0, NEON_ORANGE, 0.36)
+  addDrainChannel(root, ctx, -PLAZA_HALF + ws(1.3), 0, PLAZA_SIZE - ws(3), Math.PI / 2, NEON_ORANGE, 0.36)
+  addDrainChannel(root, ctx, 0, PLAZA_HALF - ws(1.3), PLAZA_SIZE - ws(3), 0, NEON_ORANGE, 0.36)
 
   return root
 }
@@ -543,5 +539,3 @@ export function conceptByKey(key: string): GroundConceptId | null {
   if (n >= 1 && n <= 4) return GROUND_CONCEPTS[n - 1].id
   return null
 }
-
-export { PLAZA_SIZE, PLAZA_HALF }
