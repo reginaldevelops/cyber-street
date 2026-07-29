@@ -14,12 +14,12 @@ import {
 import { buildCitySurround } from './citySurround.js'
 import { loadHitemPlayer, updatePlayerAnimations } from './playerModel.js'
 import {
+  CITY_HALF,
   ISO_CAM_OFFSET as ISO_CAM_DIST,
   ISO_FRUSTUM,
   PLAZA_HALF,
   PLAZA_SIZE,
   PLAYER_BOUNDARY_INSET,
-  WORLD_SCALE,
   ws,
 } from './worldConfig.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
@@ -37,8 +37,8 @@ const FIRE_INTERVAL = 0.115
 const GUN_RANGE = 90
 const AIM_ASSIST_ANGLE = 0.055
 
-const PLAYER_LIMIT_X = PLAZA_HALF - PLAYER_BOUNDARY_INSET
-const PLAYER_LIMIT_Z = PLAZA_HALF - PLAYER_BOUNDARY_INSET
+const PLAYER_LIMIT_X = CITY_HALF - PLAYER_BOUNDARY_INSET
+const PLAYER_LIMIT_Z = CITY_HALF - PLAYER_BOUNDARY_INSET
 
 const ENEMY_COUNT = 3
 const ENEMY_HP = 3
@@ -281,7 +281,7 @@ export class Game {
 
   private buildWorld() {
     this.scene.background = new THREE.Color(0x141024)
-    this.scene.fog = new THREE.FogExp2(0x221636, 0.016 / WORLD_SCALE)
+    this.scene.fog = new THREE.FogExp2(0x221636, 0.009)
 
     this.scene.add(new THREE.AmbientLight(0x665577, 0.45))
 
@@ -293,11 +293,11 @@ export class Game {
     moon.castShadow = true
     moon.shadow.mapSize.set(2048, 2048)
     moon.shadow.camera.near = 1
-    moon.shadow.camera.far = 100 * WORLD_SCALE
-    moon.shadow.camera.left = -42 * WORLD_SCALE
-    moon.shadow.camera.right = 42 * WORLD_SCALE
-    moon.shadow.camera.top = 42 * WORLD_SCALE
-    moon.shadow.camera.bottom = -42 * WORLD_SCALE
+    moon.shadow.camera.far = 160
+    moon.shadow.camera.left = -72
+    moon.shadow.camera.right = 72
+    moon.shadow.camera.top = 72
+    moon.shadow.camera.bottom = -72
     this.scene.add(moon)
 
     const fill = new THREE.DirectionalLight(0xff88cc, 0.22)
@@ -453,8 +453,8 @@ export class Game {
   }
 
   private makeRain() {
-    const count = 1300 * WORLD_SCALE
-    const rainSpan = PLAZA_SIZE + ws(8)
+    const count = 2200
+    const rainSpan = CITY_HALF * 2 + 16
     const positions = new Float32Array(count * 3)
     for (let i = 0; i < count; i++) {
       positions[i * 3] = THREE.MathUtils.randFloatSpread(rainSpan)
@@ -1159,7 +1159,7 @@ export class Game {
   private updateAtmosphere(dt: number, elapsed: number) {
     // Regen valt en wrapt terug omhoog
     const pos = this.rain.geometry.getAttribute('position') as THREE.BufferAttribute
-    const spread = (PLAZA_SIZE + ws(8)) / 2
+    const spread = CITY_HALF
     for (let i = 0; i < pos.count; i++) {
       let y = pos.getY(i) - 19 * dt
       if (y < 0) y += 20

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { buildModernTower, towerColliderMeshes } from './modernBuilding.js'
 import { buildPlazaStreet } from './plazaStreet.js'
+import { buildCityGrid } from './cityGrid.js'
 import {
   PERIM_INNER,
   PERIM_OUTER,
@@ -11,7 +12,6 @@ import {
   SKYLINE_NEAR,
   STREET_INNER,
   STREET_OUTER,
-  WORLD_SCALE,
   ws,
 } from './worldConfig.js'
 
@@ -580,7 +580,7 @@ export function buildStreetExtensions(ctx: CitySurroundContext): THREE.Group {
   // Instanced grates + steam vents along streets
   const grateGeo = new THREE.BoxGeometry(0.9, 0.04, 0.9)
   const grateMat = new THREE.MeshStandardMaterial({ color: GRATE, roughness: 0.7, metalness: 0.5 })
-  const grateCount = 24 * WORLD_SCALE
+  const grateCount = 24
   const grates = new THREE.InstancedMesh(grateGeo, grateMat, grateCount)
   const dummy = new THREE.Object3D()
   for (let i = 0; i < grateCount; i++) {
@@ -711,6 +711,7 @@ function buildStreetRing(ctx: CitySurroundContext): THREE.Group {
 /** Master builder — all surround systems + stats for budget tracking. */
 export function buildCitySurround(ctx: CitySurroundContext): CitySurroundStats {
   buildPlazaStreet({ scene: ctx.scene, flickerMats: ctx.flickerMats })
+  buildCityGrid({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
 
   let meshCount = 0
   let instancedMeshCount = 0
