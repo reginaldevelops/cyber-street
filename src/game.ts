@@ -15,7 +15,7 @@ import { buildCitySurround } from './citySurround.js'
 import {
   loadDirectionalRunner,
   loadHitemPlayer,
-  locomotionFromLocalVelocity,
+  locomotionWeightsFromLocalVelocity,
   updatePlayerAnimations,
 } from './playerModel.js'
 import { buildPlayerCharacter } from './playerCharacter.js'
@@ -1009,23 +1009,29 @@ export class Game {
     const moving = speed > MOVE_FACE_THRESHOLD
     const speedRatio = THREE.MathUtils.clamp(speed / SPRINT_SPEED, 0, 1)
 
-    // Always face the mouse / aim point
-    this.faceYaw = dampAngle(this.faceYaw, this.aimYaw, FACE_TURN, dt)
+    // Face move direction while running so the front-run clip always matches.
+    // When idle / nearly still, ease back toward mouse aim for shooting.
+    if (moving) {
+      const moveYaw = Math.atan2(this.velocity.x, this.velocity.z)
+      this.faceYaw = dampAngle(this.faceYaw, moveYaw, FACE_TURN, dt)
+    } else {
+      this.faceYaw = dampAngle(this.faceYaw, this.aimYaw, FACE_TURN_IDLE, dt)
+    }
     this.player.rotation.y = this.faceYaw
 
-    // Local velocity relative to facing: +Z = forward, -Z = backpedal
+    // Local velocity vs facing — with move-facing this is mostly +Z while running
     const localVel = this.velocity.clone().applyAxisAngle(
       new THREE.Vector3(0, 1, 0), -this.faceYaw
     )
     const forwardDot = localVel.z
     const backpedaling = moving && forwardDot < -0.08
-    // Calm backpedal — cap speed while walking backward facing the mouse
     if (backpedaling) {
       const cap = WALK_SPEED * 0.62
       if (this.velocity.length() > cap) this.velocity.setLength(cap)
     }
 
-    const locoDir = locomotionFromLocalVelocity(localVel, moving)
+    // Prefer front-run when mostly aligned; blend sides only for residual strafe
+    const locoWeights = locomotionWeightsFromLocalVelocity(localVel, moving)
     updatePlayerAnimations(
       {
         mixer: this.playerMixer,
@@ -1042,11 +1048,17 @@ export class Game {
       this.keys.sprint && hasInput && !backpedaling,
       speedRatio,
       backpedaling,
-      locoDir,
+      'idle',
+      locoWeights,
     )
 
     if (this.playerMixer) {
-      // GLB clips drive locomotion (timeScale flipped when backpedaling)
+      // GLB clips drive locomotion — keep procedural limbs still
+      this.legL.rotation.x = THREE.MathUtils.damp(this.legL.rotation.x, 0, 14, dt)
+      this.legR.rotation.x = THREE.MathUtils.damp(this.legR.rotation.x, 0, 14, dt)
+      this.armL.rotation.x = THREE.MathUtils.damp(this.armL.rotation.x, 0, 14, dt)
+      this.armR.rotation.x = THREE.MathUtils.damp(this.armR.rotation.x, 0, 14, dt)
+      this.playerBody.position.y = THREE.MathUtils.damp(this.playerBody.position.y, 0, 14, dt)
     } else if (moving) {
       // Procedural walk: reverse swing when moving backward while facing mouse
       const cadence = backpedaling ? 5.5 + speedRatio * 3.5 : 7.5 + speedRatio * 6.5
@@ -1069,11 +1081,16 @@ export class Game {
       this.playerBody.position.y = THREE.MathUtils.damp(this.playerBody.position.y, 0, 14, dt)
     }
 
-    // Lean into strafe / accel relative to facing
-    const targetLeanZ = THREE.MathUtils.clamp(-localVel.x * 0.03, -0.1, 0.1)
-    const targetLeanX = THREE.MathUtils.clamp(localVel.z * 0.022, -0.08, 0.08)
-    this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 12, dt)
-    this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, targetLeanX, 12, dt)
+    // Lean only for voxel / non-skeletal — Mixamo already has body motion
+    if (!this.playerHasSkeleton) {
+      const targetLeanZ = THREE.MathUtils.clamp(-localVel.x * 0.03, -0.1, 0.1)
+      const targetLeanX = THREE.MathUtils.clamp(localVel.z * 0.022, -0.08, 0.08)
+      this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 12, dt)
+      this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, targetLeanX, 12, dt)
+    } else {
+      this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, 0, 12, dt)
+      this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, 0, 12, dt)
+    }
 
     this.gunKick = Math.max(0, this.gunKick - dt * 6)
     this.gunHolder.rotation.x = THREE.MathUtils.damp(

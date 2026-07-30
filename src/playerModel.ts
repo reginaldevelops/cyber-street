@@ -47,12 +47,81 @@ function findClip(clips: THREE.AnimationClip[], ...names: string[]) {
   return null
 }
 
-/** Prefer the last clip — Mixamo merges often put the directional run last. */
-function pickDirectionalClip(clips: THREE.AnimationClip[], label: string): THREE.AnimationClip | null {
+type TravelAxis = 'front' | 'back' | 'left' | 'right' | 'unknown'
+
+/** Measure net hips travel in a clip (Mixamo root motion). */
+function hipsTravel(clip: THREE.AnimationClip): { dx: number; dy: number; dz: number } {
+  const track = clip.tracks.find(
+    (t) => /hips/i.test(t.name) && t.name.endsWith('.position'),
+  ) as THREE.VectorKeyframeTrack | undefined
+  if (!track || track.values.length < 6) return { dx: 0, dy: 0, dz: 0 }
+  const v = track.values
+  const n = v.length
+  return {
+    dx: v[n - 3] - v[0],
+    dy: v[n - 2] - v[1],
+    dz: v[n - 1] - v[2],
+  }
+}
+
+function classifyTravel(clip: THREE.AnimationClip): TravelAxis {
+  const { dx, dy, dz } = hipsTravel(clip)
+  const ax = Math.abs(dx)
+  const ay = Math.abs(dy)
+  const az = Math.abs(dz)
+  const max = Math.max(ax, ay, az)
+  // In-place front run: tiny net travel
+  if (max < 20) return 'front'
+  // Mixamo (Y-up glTF): strafe on X. Back clip in this pack travels on Y
+  // (armature Rx=90°), forward/back on Z when present.
+  if (ax >= ay && ax >= az) return dx > 0 ? 'left' : 'right'
+  if (ay >= ax && ay >= az) return dy < 0 ? 'back' : 'front'
+  return dz < 0 ? 'front' : 'back'
+}
+
+/**
+ * Strip Mixamo root motion so gameplay position owns movement.
+ * Locks hips X/Z (and Y when that was the travel axis) to the start pose.
+ */
+function makeClipInPlace(clip: THREE.AnimationClip, name: string): THREE.AnimationClip {
+  const out = clip.clone()
+  out.name = name
+  for (const track of out.tracks) {
+    if (!/hips/i.test(track.name) || !track.name.endsWith('.position')) continue
+    if (!(track instanceof THREE.VectorKeyframeTrack)) continue
+    const v = track.values
+    if (v.length < 6) continue
+
+    const x0 = v[0]
+    const y0 = v[1]
+    const z0 = v[2]
+    let minY = Infinity
+    let maxY = -Infinity
+    for (let i = 1; i < v.length; i += 3) {
+      minY = Math.min(minY, v[i])
+      maxY = Math.max(maxY, v[i])
+    }
+    // Back clip in this pack travels on Y (~226 units) — freeze it too
+    const freezeY = maxY - minY > 20
+    for (let i = 0; i < v.length; i += 3) {
+      v[i] = x0
+      v[i + 2] = z0
+      if (freezeY) v[i + 1] = y0
+    }
+  }
+  return out
+}
+
+/** Pick the clip whose hips travel matches the requested direction. */
+function pickDirectionalClip(clips: THREE.AnimationClip[], dir: TravelAxis, label: string): THREE.AnimationClip | null {
   if (clips.length === 0) return null
-  const clip = clips[clips.length - 1].clone()
-  clip.name = label
-  return clip
+  let best: THREE.AnimationClip | null = null
+  for (const clip of clips) {
+    if (classifyTravel(clip) === dir) best = clip
+  }
+  // Fallback: last clip (Blender append order) except front prefers first
+  if (!best) best = dir === 'front' ? clips[0] : clips[clips.length - 1]
+  return makeClipInPlace(best, label)
 }
 
 function boneBoundingBox(model: THREE.Object3D): THREE.Box3 {
@@ -301,14 +370,25 @@ export async function loadDirectionalRunner(): Promise<PlayerRig> {
   scene.name = 'player-model'
 
   const clips: THREE.AnimationClip[] = []
-  const frontClip = pickDirectionalClip(front.animations, 'run-front')
-  const backClip = pickDirectionalClip(back.animations, 'run-back')
-  const leftClip = pickDirectionalClip(left.animations, 'run-left')
-  const rightClip = pickDirectionalClip(right.animations, 'run-right')
+  // Classify by actual hips travel — these Blender exports stack multiple Mixamo clips.
+  const frontClip = pickDirectionalClip(front.animations, 'front', 'run-front')
+  const backClip = pickDirectionalClip(back.animations, 'back', 'run-back')
+  const leftClip = pickDirectionalClip(left.animations, 'left', 'run-left')
+  const rightClip = pickDirectionalClip(right.animations, 'right', 'run-right')
   if (frontClip) clips.push(frontClip)
   if (backClip) clips.push(backClip)
   if (leftClip) clips.push(leftClip)
   if (rightClip) clips.push(rightClip)
+
+  console.info('[player] clip classification', {
+    front: front.animations.map((c) => classifyTravel(c)),
+    back: back.animations.map((c) => classifyTravel(c)),
+    left: left.animations.map((c) => classifyTravel(c)),
+    right: right.animations.map((c) => classifyTravel(c)),
+  })
+
+  // Mixamo bind faces -Z; rotate so mesh forward = Three.js +Z (move / face yaw).
+  scene.rotation.y = Math.PI
 
   // Pose with first frame so bone bbox is meaningful before fit
   if (frontClip) {
@@ -368,18 +448,61 @@ export async function loadHitemPlayer(): Promise<PlayerRig> {
 
 export type LocomotionDir = 'idle' | 'front' | 'back' | 'left' | 'right'
 
-/** Pick run direction from local velocity (+Z forward, +X right). */
+export type LocomotionWeights = {
+  front: number
+  back: number
+  left: number
+  right: number
+  moving: boolean
+}
+
+/**
+ * Soft 4-way weights from local velocity (+Z forward, +X right).
+ * Model is rotated +π yaw so Mixamo axes match gameplay (no strafe swap).
+ */
+export function locomotionWeightsFromLocalVelocity(
+  localVel: THREE.Vector3,
+  moving: boolean,
+): LocomotionWeights {
+  if (!moving) {
+    return { front: 1, back: 0, left: 0, right: 0, moving: false }
+  }
+  const fx = Math.max(0, localVel.x)
+  const bx = Math.max(0, -localVel.x)
+  const fz = Math.max(0, localVel.z)
+  const bz = Math.max(0, -localVel.z)
+  let front = fz
+  let back = bz
+  let right = fx
+  let left = bx
+  const sum = front + back + left + right
+  if (sum < 1e-6) {
+    return { front: 1, back: 0, left: 0, right: 0, moving: false }
+  }
+  front /= sum
+  back /= sum
+  left /= sum
+  right /= sum
+  return { front, back, left, right, moving: true }
+}
+
+/** @deprecated discrete dir — prefer locomotionWeightsFromLocalVelocity */
 export function locomotionFromLocalVelocity(
   localVel: THREE.Vector3,
   moving: boolean,
   threshold = 0.08,
 ): LocomotionDir {
-  if (!moving) return 'idle'
-  const ax = Math.abs(localVel.x)
-  const az = Math.abs(localVel.z)
-  if (ax < threshold && az < threshold) return 'idle'
-  if (az >= ax) return localVel.z >= 0 ? 'front' : 'back'
-  return localVel.x >= 0 ? 'right' : 'left'
+  const w = locomotionWeightsFromLocalVelocity(localVel, moving)
+  if (!w.moving) return 'idle'
+  const entries: [LocomotionDir, number][] = [
+    ['front', w.front],
+    ['back', w.back],
+    ['left', w.left],
+    ['right', w.right],
+  ]
+  entries.sort((a, b) => b[1] - a[1])
+  if (entries[0][1] < threshold && localVel.length() < threshold) return 'idle'
+  return entries[0][0]
 }
 
 /** Crossfade locomotion clips. Supports directional Mixamo runs or idle/walk/run. */
@@ -401,12 +524,24 @@ export function updatePlayerAnimations(
   speedRatio = 1,
   backpedaling = false,
   dir: LocomotionDir = 'idle',
+  weights?: LocomotionWeights,
 ) {
   if (rig.mixer) rig.mixer.update(dt)
 
   const hasDirectional = !!(rig.frontAction || rig.backAction || rig.leftAction || rig.rightAction)
   if (hasDirectional) {
-    updateDirectionalAnimations(rig, dt, moving, speedRatio, dir)
+    const w =
+      weights ??
+      (dir === 'idle' || !moving
+        ? { front: 1, back: 0, left: 0, right: 0, moving: false }
+        : {
+            front: dir === 'front' ? 1 : 0,
+            back: dir === 'back' ? 1 : 0,
+            left: dir === 'left' ? 1 : 0,
+            right: dir === 'right' ? 1 : 0,
+            moving: true,
+          })
+    updateDirectionalAnimations(rig, dt, speedRatio, w)
     return
   }
 
@@ -442,53 +577,59 @@ function updateDirectionalAnimations(
     'frontAction' | 'backAction' | 'leftAction' | 'rightAction' | 'idleAction'
   >,
   dt: number,
-  moving: boolean,
   speedRatio: number,
-  dir: LocomotionDir,
+  weights: LocomotionWeights,
 ) {
-  const byDir: Record<Exclude<LocomotionDir, 'idle'>, THREE.AnimationAction | null | undefined> = {
-    front: rig.frontAction,
-    back: rig.backAction,
-    left: rig.leftAction,
-    right: rig.rightAction,
-  }
+  const pairs: { action: THREE.AnimationAction | null | undefined; target: number }[] = [
+    { action: rig.frontAction, target: weights.front },
+    { action: rig.backAction, target: weights.back },
+    { action: rig.leftAction, target: weights.left },
+    { action: rig.rightAction, target: weights.right },
+  ]
 
-  let target: THREE.AnimationAction | null | undefined
-  if (moving && dir !== 'idle') {
-    target = byDir[dir] ?? rig.frontAction
-  } else {
-    // Hold front pose as idle (no dedicated idle clip)
-    target = rig.frontAction ?? Object.values(byDir).find(Boolean)
-  }
+  const cadence = weights.moving ? 0.9 + speedRatio * 0.4 : 0
+  let dominant: THREE.AnimationAction | null = null
+  let dominantW = -1
 
-  if (!target) return
+  for (const { action, target } of pairs) {
+    if (!action) continue
+    action.enabled = true
+    if (!action.isRunning()) action.play()
 
-  const all = [
-    rig.frontAction,
-    rig.backAction,
-    rig.leftAction,
-    rig.rightAction,
-    rig.idleAction,
-  ].filter(Boolean) as THREE.AnimationAction[]
-
-  const cadence = moving ? 0.95 + speedRatio * 0.35 : 0
-
-  for (const action of all) {
-    if (action === target) {
-      action.enabled = true
-      if (moving) {
-        action.paused = false
-        action.setEffectiveTimeScale(cadence)
-      } else {
-        // Freeze near a calm frame for idle
-        action.paused = true
-        action.time = 0
-        action.setEffectiveTimeScale(0)
-      }
-      action.setEffectiveWeight(THREE.MathUtils.damp(action.getEffectiveWeight(), 1, 12, dt))
-      if (!action.isRunning()) action.play()
+    if (weights.moving) {
+      action.paused = false
+      action.setEffectiveTimeScale(cadence)
     } else {
-      action.setEffectiveWeight(THREE.MathUtils.damp(action.getEffectiveWeight(), 0, 12, dt))
+      // Soft idle: ease toward frame 0 once, don't hard-reset every tick
+      action.paused = true
+      action.setEffectiveTimeScale(0)
+      if (action === rig.frontAction && action.time > 0.02) {
+        action.time = THREE.MathUtils.damp(action.time, 0, 6, dt)
+      }
     }
+
+    const next = THREE.MathUtils.damp(action.getEffectiveWeight(), target, 14, dt)
+    action.setEffectiveWeight(next)
+    if (next > dominantW) {
+      dominantW = next
+      dominant = action
+    }
+  }
+
+  // Keep foot phase aligned across blended clips
+  if (dominant && weights.moving) {
+    const t = dominant.time
+    for (const { action } of pairs) {
+      if (!action || action === dominant) continue
+      if (action.getEffectiveWeight() < 0.02) continue
+      const dur = action.getClip().duration
+      if (dur > 0) action.time = t % dur
+    }
+  }
+
+  if (rig.idleAction) {
+    rig.idleAction.setEffectiveWeight(
+      THREE.MathUtils.damp(rig.idleAction.getEffectiveWeight(), 0, 14, dt),
+    )
   }
 }
