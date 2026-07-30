@@ -222,6 +222,499 @@
           rgba(0, 20, 12, 0.72) 100%
         );
       }
+      #dungeon-hud {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        --dng-cyan: #00f6ff;
+        --dng-pink: #ff2d95;
+        --dng-dark: rgba(7, 8, 16, 0.94);
+        --dng-muted: #8095a3;
+        font-size: 8px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        pointer-events: none;
+      }
+      #dungeon-hud.hidden,
+      #dng-boss.hidden,
+      #dng-banner.hidden,
+      #dng-prompt.hidden,
+      #dng-inventory.hidden {
+        display: none;
+      }
+      .dng-panel {
+        position: absolute;
+        border: 3px solid var(--dng-cyan);
+        background: var(--dng-dark);
+        box-shadow: 4px 4px 0 rgba(255, 45, 149, 0.9);
+        color: #c8f7ff;
+      }
+      #dng-player-panel {
+        top: 18px;
+        left: 18px;
+        width: min(310px, calc(100vw - 36px));
+        padding: 11px 12px 12px;
+        border-left: 6px solid var(--dng-pink);
+      }
+      .dng-panel-title,
+      .dng-boss-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }
+      #dng-level {
+        color: var(--dng-pink);
+      }
+      #dng-armor {
+        color: #8ecbff;
+      }
+      .dng-meter {
+        position: relative;
+        height: 18px;
+        margin-top: 9px;
+        overflow: hidden;
+        border: 2px solid #27394b;
+        background: #02050a;
+      }
+      .dng-meter > span,
+      .dng-boss-track > span {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 0;
+        transition: width 0.12s steps(5, end);
+      }
+      .dng-hp-meter > span {
+        background: repeating-linear-gradient(
+          90deg,
+          #ff2d95 0,
+          #ff2d95 15px,
+          #c51966 15px,
+          #c51966 18px
+        );
+      }
+      .dng-hp-meter > span.low {
+        background: #ff3b3b;
+        animation: dng-low-hp 0.55s steps(2, end) infinite;
+      }
+      @keyframes dng-low-hp {
+        50% { opacity: 0.55; }
+      }
+      .dng-xp-meter {
+        height: 14px;
+        margin-top: 5px;
+      }
+      .dng-xp-meter > span {
+        background: repeating-linear-gradient(
+          90deg,
+          #00f6ff 0,
+          #00f6ff 12px,
+          #008b99 12px,
+          #008b99 15px
+        );
+      }
+      .dng-meter > b {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        z-index: 1;
+        color: #fff;
+        font-size: 7px;
+        line-height: 1;
+        text-shadow: 2px 2px 0 #000;
+      }
+      #dng-ammo {
+        left: 50%;
+        bottom: 20px;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: baseline;
+        gap: 16px;
+        min-width: 190px;
+        padding: 11px 15px;
+        border-top-color: var(--dng-pink);
+      }
+      #dng-ammo span {
+        color: var(--dng-muted);
+      }
+      #dng-ammo b {
+        margin-left: auto;
+        color: var(--dng-cyan);
+        font-size: 15px;
+      }
+      #dng-ammo b.empty {
+        color: #ff4b5f;
+      }
+      #dng-scrap,
+      #dng-room {
+        right: 18px;
+        min-width: 170px;
+        padding: 10px 12px;
+        text-align: right;
+      }
+      #dng-scrap {
+        top: 18px;
+        border-right: 6px solid var(--dng-pink);
+      }
+      #dng-scrap b {
+        margin-left: 8px;
+        color: #ffd64a;
+      }
+      #dng-room {
+        top: 61px;
+        color: var(--dng-muted);
+      }
+      #dng-room b {
+        color: var(--dng-cyan);
+      }
+      #dng-boss {
+        position: absolute;
+        top: 18px;
+        left: 50%;
+        width: min(560px, 46vw);
+        transform: translateX(-50%);
+        padding: 9px 12px 11px;
+        border: 3px solid #ff2d95;
+        background: var(--dng-dark);
+        box-shadow: 4px 4px 0 #64123c;
+      }
+      .dng-boss-label {
+        margin-bottom: 7px;
+        color: #ff7abb;
+      }
+      .dng-boss-label span {
+        color: #d7c9d2;
+        font-size: 7px;
+      }
+      .dng-boss-track {
+        position: relative;
+        height: 15px;
+        overflow: hidden;
+        border: 2px solid #5a1c3b;
+        background: #12040c;
+      }
+      .dng-boss-track > span {
+        background: repeating-linear-gradient(
+          90deg,
+          #ff2d95 0,
+          #ff2d95 19px,
+          #9c174f 19px,
+          #9c174f 22px
+        );
+      }
+      .dng-boss-track .phase {
+        position: absolute;
+        z-index: 1;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: #fff07a;
+        box-shadow: 1px 0 0 #000;
+      }
+      .dng-boss-track .phase-60 { left: 40%; }
+      .dng-boss-track .phase-30 { left: 70%; }
+      #dng-banner {
+        position: absolute;
+        left: 50%;
+        top: 32%;
+        transform: translate(-50%, -50%);
+        padding: 15px 22px;
+        border: 4px solid var(--dng-cyan);
+        background: #080611;
+        color: var(--dng-pink);
+        font-size: clamp(11px, 2vw, 19px);
+        line-height: 1.4;
+        text-align: center;
+        box-shadow: 7px 7px 0 var(--dng-pink);
+        text-shadow: 2px 2px 0 #440020;
+        animation: dng-banner-in 0.22s steps(3, end);
+      }
+      @keyframes dng-banner-in {
+        from { transform: translate(-50%, -50%) scale(1.4); opacity: 0; }
+      }
+      #dng-prompt {
+        position: absolute;
+        left: 50%;
+        bottom: 86px;
+        transform: translateX(-50%);
+        max-width: min(90vw, 580px);
+        padding: 10px 14px;
+        border: 3px solid var(--dng-cyan);
+        background: var(--dng-dark);
+        color: #fff;
+        line-height: 1.6;
+        text-align: center;
+        box-shadow: 4px 4px 0 var(--dng-pink);
+      }
+      #dng-prompt::before {
+        content: 'E';
+        display: inline-block;
+        margin-right: 10px;
+        padding: 3px 5px;
+        background: var(--dng-pink);
+        color: #fff;
+      }
+      #dng-dmg-layer {
+        position: fixed;
+        inset: 0;
+        z-index: 8;
+        overflow: hidden;
+        pointer-events: none;
+      }
+      .dng-damage-number {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        color: #fff;
+        font-family: 'Press Start 2P', monospace;
+        font-size: 11px;
+        text-shadow: 2px 2px 0 #000, -1px -1px 0 #000;
+        animation: dng-damage-rise 0.7s steps(7, end) forwards;
+      }
+      .dng-damage-number.enemy { color: #ff4b5f; }
+      .dng-damage-number.crit {
+        color: #ffe14f;
+        font-size: 14px;
+      }
+      .dng-damage-number.armor { color: #47a7ff; }
+      @keyframes dng-damage-rise {
+        to { transform: translate(-50%, -48px); opacity: 0; }
+      }
+      #dng-inventory {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+        background: rgba(2, 5, 10, 0.78);
+        pointer-events: auto;
+      }
+      .dng-inventory-panel {
+        width: min(980px, 96vw);
+        max-height: min(680px, 94vh);
+        overflow: auto;
+        border: 4px solid var(--dng-cyan);
+        border-left: 8px solid var(--dng-pink);
+        background: #080a12;
+        box-shadow: 8px 8px 0 rgba(255, 45, 149, 0.8);
+        color: #c8f7ff;
+      }
+      .dng-inventory-panel > header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 16px;
+        border-bottom: 3px solid #263b4c;
+        color: var(--dng-pink);
+        font-size: 13px;
+      }
+      .dng-inventory-panel > header small {
+        display: block;
+        margin-top: 7px;
+        color: var(--dng-muted);
+        font-size: 6px;
+      }
+      #dng-inventory button {
+        font-family: 'Press Start 2P', monospace;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+      #dng-inventory-close {
+        width: 34px;
+        height: 34px;
+        border: 3px solid var(--dng-pink);
+        background: #160912;
+        color: #fff;
+        box-shadow: 3px 3px 0 #5b1738;
+      }
+      #dng-inventory-close:hover,
+      .dng-detail-actions button:hover {
+        transform: translate(-1px, -1px);
+      }
+      .dng-inventory-body {
+        display: grid;
+        grid-template-columns: minmax(190px, 0.8fr) minmax(320px, 1.35fr) minmax(200px, 0.85fr);
+        gap: 16px;
+        padding: 16px;
+      }
+      .dng-inventory-body h2 {
+        margin-bottom: 9px;
+        color: var(--dng-cyan);
+        font-size: 8px;
+        line-height: 1.5;
+      }
+      .dng-equipment h2:not(:first-child) {
+        margin-top: 16px;
+      }
+      .dng-equipment-slots {
+        display: grid;
+        gap: 6px;
+      }
+      .dng-equip-slot {
+        min-height: 45px;
+        padding: 8px;
+        overflow: hidden;
+        border: 2px solid #344453;
+        border-left-width: 5px;
+        background: #0d111b;
+      }
+      .dng-equip-slot span {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--dng-muted);
+        font-size: 6px;
+      }
+      .dng-equip-slot b {
+        display: block;
+        overflow: hidden;
+        color: #c4cbd2;
+        font-size: 7px;
+        line-height: 1.4;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .dng-backpack h2 {
+        display: flex;
+        justify-content: space-between;
+      }
+      #dng-pack-count {
+        color: var(--dng-muted);
+      }
+      #dng-inventory-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 7px;
+      }
+      .dng-item-slot {
+        position: relative;
+        aspect-ratio: 1;
+        min-width: 0;
+        overflow: hidden;
+        border: 3px solid #3b4b59;
+        background: #0b1019;
+        color: #d5d9dd;
+      }
+      .dng-item-slot > span {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        margin: 0 auto 5px;
+        place-items: center;
+        border: 2px solid currentColor;
+        color: inherit;
+        font-size: 10px;
+      }
+      .dng-item-slot > b {
+        display: -webkit-box;
+        padding: 0 4px;
+        overflow: hidden;
+        font-size: 5px;
+        line-height: 1.5;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+      .dng-item-slot > em {
+        position: absolute;
+        right: 4px;
+        bottom: 4px;
+        padding: 2px;
+        background: #05070b;
+        color: #fff;
+        font-size: 6px;
+        font-style: normal;
+      }
+      .dng-item-slot.empty {
+        border-color: #202b35;
+        color: #354552;
+      }
+      .dng-item-slot.empty > span {
+        border: 0;
+        font-size: 6px;
+      }
+      .dng-item-slot.selected {
+        outline: 3px solid #fff;
+        outline-offset: -6px;
+        background: #172334;
+      }
+      .rarity-common { border-color: #d5d9dd; color: #d5d9dd; }
+      .rarity-uncommon { border-color: #52e38b; color: #52e38b; }
+      .rarity-rare { border-color: #47a7ff; color: #47a7ff; }
+      .rarity-epic { border-color: #c86bff; color: #c86bff; }
+      #dng-item-detail {
+        min-height: 220px;
+        border: 2px solid #263b4c;
+        background: #0b0e16;
+      }
+      .dng-detail-empty {
+        display: grid;
+        min-height: 216px;
+        place-items: center;
+        color: #4d6170;
+        font-size: 7px;
+      }
+      .dng-detail {
+        height: 100%;
+        padding: 13px;
+        border-top: 5px solid currentColor;
+      }
+      .dng-detail small {
+        font-size: 6px;
+      }
+      .dng-detail h2 {
+        margin: 12px 0;
+        color: currentColor;
+        font-size: 10px;
+      }
+      .dng-detail p {
+        color: #aebdc8;
+        font-size: 7px;
+        line-height: 1.8;
+        text-transform: none;
+      }
+      .dng-detail-actions {
+        display: grid;
+        gap: 8px;
+        margin-top: 18px;
+      }
+      .dng-detail-actions button {
+        padding: 9px 6px;
+        border: 2px solid var(--dng-cyan);
+        background: #101c25;
+        color: #fff;
+        font-size: 7px;
+        box-shadow: 3px 3px 0 #164853;
+      }
+      .dng-detail-actions button:last-child {
+        border-color: var(--dng-pink);
+        box-shadow: 3px 3px 0 #5b1738;
+      }
+      .dng-detail-actions button.confirm {
+        background: var(--dng-pink);
+        color: #fff;
+      }
+      @media (max-width: 800px), (max-height: 620px) {
+        #dng-boss {
+          top: 106px;
+          width: min(560px, calc(100vw - 36px));
+        }
+        .dng-inventory-body {
+          grid-template-columns: minmax(160px, 0.7fr) minmax(280px, 1.3fr);
+        }
+        #dng-item-detail {
+          grid-column: 1 / -1;
+          min-height: 150px;
+        }
+        .dng-detail-empty { min-height: 146px; }
+      }
+      @media (max-width: 560px) {
+        #dng-player-panel { width: 220px; }
+        #dng-scrap,
+        #dng-room { min-width: 115px; font-size: 6px; }
+        .dng-inventory-body { grid-template-columns: 1fr; }
+        #dng-item-detail { grid-column: auto; }
+        .dng-item-slot > b { display: none; }
+      }
       #concept-panel {
         position: absolute;
         top: 18px;
@@ -361,6 +854,70 @@
         Loop de hatch in om de sewer te betreden
       </div>
       <button id="exit-sewer-btn" class="hidden" type="button">Exit sewer</button>
+      <div id="dungeon-hud" class="hidden">
+        <div id="dng-player-panel" class="dng-panel">
+          <div class="dng-panel-title">
+            <span id="dng-level">LV 1</span>
+            <span id="dng-armor">ARM 0</span>
+          </div>
+          <div class="dng-meter dng-hp-meter">
+            <span id="dng-hp-fill"></span>
+            <b id="dng-hp-text">0 / 0</b>
+          </div>
+          <div class="dng-meter dng-xp-meter">
+            <span id="dng-xp-fill"></span>
+            <b id="dng-xp-text">XP 0 / 0</b>
+          </div>
+        </div>
+        <div id="dng-ammo" class="dng-panel">
+          <span>AMMO</span>
+          <b id="dng-ammo-text">0 / 0</b>
+        </div>
+        <div id="dng-scrap" class="dng-panel">SCRAP <b id="dng-scrap-text">0</b></div>
+        <div id="dng-room" class="dng-panel">
+          <b id="dng-room-text">0 / 0</b> PURGED
+        </div>
+        <div id="dng-boss" class="hidden">
+          <div class="dng-boss-label">
+            <b id="dng-boss-name">THE SUMP KING</b>
+            <span id="dng-boss-text">0 / 0</span>
+          </div>
+          <div class="dng-boss-track">
+            <span id="dng-boss-fill"></span>
+            <i class="phase phase-60"></i>
+            <i class="phase phase-30"></i>
+          </div>
+        </div>
+        <div id="dng-banner" class="hidden"></div>
+        <div id="dng-prompt" class="hidden"></div>
+        <div id="dng-inventory" class="hidden">
+          <div class="dng-inventory-panel">
+            <header>
+              <div>
+                <span>SEWER LOADOUT</span>
+                <small>INVENTORY 4 × 4</small>
+              </div>
+              <button id="dng-inventory-close" type="button">X</button>
+            </header>
+            <div class="dng-inventory-body">
+              <section class="dng-equipment">
+                <h2>WEAPON PARTS</h2>
+                <div id="dng-weapon-slots" class="dng-equipment-slots"></div>
+                <h2>ARMOR</h2>
+                <div id="dng-armor-slots" class="dng-equipment-slots"></div>
+              </section>
+              <section class="dng-backpack">
+                <h2>BACKPACK <span id="dng-pack-count">0 / 16</span></h2>
+                <div id="dng-inventory-grid"></div>
+              </section>
+              <aside id="dng-item-detail">
+                <div class="dng-detail-empty">SELECT AN ITEM</div>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="dng-dmg-layer"></div>
     </div>
     <div id="start-screen">
       <div id="start-ui">
