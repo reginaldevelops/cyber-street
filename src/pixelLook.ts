@@ -1,16 +1,16 @@
 import * as THREE from 'three'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 
-/** Internal render is 1/PIXEL_SCALE of the screen, then nearest-upscaled. */
-export const PIXEL_SCALE = 2
+/** Internal render is 1/PIXEL_SCALE of the screen, then upscaled. 1 = full res (mild look). */
+export const PIXEL_SCALE = 1
 
-/** Mild posterize for chunky cyberpunk palette banding. */
+/** Soft posterize — high levels keep color fidelity, low dither. */
 export const PixelQuantizeShader = {
   name: 'PixelQuantizeShader',
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    levels: { value: 36.0 },
-    dither: { value: 0.02 },
+    levels: { value: 72.0 },
+    dither: { value: 0.008 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -78,7 +78,5 @@ export function applyPixelResolution(
   const canvas = renderer.domElement
   canvas.style.width = `${cssW}px`
   canvas.style.height = `${cssH}px`
-  canvas.style.imageRendering = 'pixelated'
-  ;(canvas.style as unknown as { imageRendering: string }).imageRendering = 'crisp-edges'
-  canvas.style.imageRendering = 'pixelated'
+  canvas.style.imageRendering = 'auto'
 }

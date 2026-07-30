@@ -239,7 +239,7 @@ export class Game {
     this.renderer.shadowMap.type = THREE.BasicShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 1.05
-    this.renderer.domElement.style.imageRendering = 'pixelated'
+    this.renderer.domElement.style.imageRendering = 'auto'
     container.appendChild(this.renderer.domElement)
 
     const aspect = container.clientWidth / Math.max(container.clientHeight, 1)
@@ -420,8 +420,9 @@ export class Game {
 
     this.dungeon = new DungeonSystem(this.scene)
     // Starter meds for the first dive
-    tryAddItem(this.dungeon.playerProgress, createItemInstance('med-gel-injector', 3))
-    tryAddItem(this.dungeon.playerProgress, createItemInstance('ablative-patch', 1))
+    tryAddItem(this.dungeon.playerProgress, createItemInstance('med-gel-injector', 5))
+    tryAddItem(this.dungeon.playerProgress, createItemInstance('ablative-patch', 2))
+    tryAddItem(this.dungeon.playerProgress, createItemInstance('redline-ampoule', 1))
   }
 
   private addPuddleDecal(x: number, z: number, radius: number, color: number, intensity = 0.12) {

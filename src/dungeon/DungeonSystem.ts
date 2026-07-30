@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import {
+  COMBAT_CONFIG,
   DEATH_CONFIG,
   ITEM_CATALOG,
   LOOT_WORLD_CONFIG,
@@ -750,7 +751,7 @@ export class DungeonSystem {
     const armor = totalArmor(this.progress)
     const dealt = mitigateDamage(dmg, armor)
     this.progress.hp = Math.max(0, this.progress.hp - dealt)
-    this.invuln = 0.35
+    this.invuln = COMBAT_CONFIG.playerDamageInvulnerability
     this.hud.showDamageNumber(playerPos.clone().setY(1.4), camera, rendererDom, dealt, 'player')
     this.refreshHud()
     if (this.progress.hp <= 0) {
