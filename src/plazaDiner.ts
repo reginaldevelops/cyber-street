@@ -75,14 +75,13 @@ export function buildPlazaDiner(ctx: PlazaDinerContext): THREE.Group {
   const root = new THREE.Group()
   root.name = 'plaza-diner'
 
-  // Northwest plaza — clear of central hub, fully on grate floor
-  const lotX = -9
-  const lotZ = -9
+  // Northwest plaza — axis-aligned with the plaza grid, facing south toward center
+  const lotX = -12
+  const lotZ = -15
   const lot = DINER_SIZE
   const half = lot / 2
 
-  // Face southeast toward plaza center
-  const yaw = Math.PI / 4
+  const yaw = 0
   root.position.set(lotX, 0, lotZ)
   root.rotation.y = yaw
 
@@ -131,7 +130,7 @@ export function buildPlazaDiner(ctx: PlazaDinerContext): THREE.Group {
   // ── Lot pad ──────────────────────────────────────────────────────────────
   const pad = new THREE.Mesh(
     new THREE.BoxGeometry(lot + 0.4, 0.12, lot + 0.4),
-    new THREE.MeshStandardMaterial({ color: 0x16161c, roughness: 0.82, metalness: 0.2 }),
+    new THREE.MeshStandardMaterial({ color: 0x3a3e48, roughness: 0.85, metalness: 0.15 }),
   )
   pad.position.y = 0.06
   pad.receiveShadow = true

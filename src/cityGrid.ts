@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { buildLot, civicKindAt, pickBuildingKind } from './cityBuildings.js'
 import { addBikeStall, addBenchAndBin, addLanternString, addPowerLines, addSidewalkTiles, addStreetCart, addTrafficLight, addUtilityBox, addVendingMachine } from './cityProps.js'
-import { PLAZA_EXCLUDE, STREET_OUTER } from './worldConfig.js'
+import { overlapsConstructionSite } from './constructionSite.js'
+import { PLAZA_EXCLUDE, STREET_MID, STREET_OUTER } from './worldConfig.js'
 import { addTilePlane, addTiledRoadStrip, makeTileAsphaltMat } from './tiledSurfaces.js'
 
 const BLOCK = 13
@@ -18,7 +19,6 @@ export const CITY_GRID_SPAN = GRID_SPAN
 export const CITY_SIDEWALK_W = SIDEWALK_W
 
 const NEON_CYAN = 0x00f6ff
-const NEON_ACCENTS = [NEON_CYAN, 0xff2d95, 0xffe14d, 0xff6622]
 
 export interface CityGridContext {
   scene: THREE.Scene
@@ -35,7 +35,7 @@ function markingMat() {
   return new THREE.MeshStandardMaterial({
     color: 0xf2f2f2,
     emissive: 0xf2f2f2,
-    emissiveIntensity: 0.06,
+    emissiveIntensity: 0.08,
     roughness: 0.62,
     polygonOffset: true,
     polygonOffsetFactor: -1,
@@ -53,6 +53,17 @@ function segmentOverlapsPlaza(a: number, b: number, orthoMin: number, orthoMax: 
   const maxZ = vertical ? orthoMax : Math.max(a, b) + ROAD / 2
   return blockOverlapsPlaza(minX, maxX, minZ, maxZ)
 }
+
+/** Major outer avenues — skip ±18 clutter; ±36 used for N–S only (ring owns E–W). */
+function majorRoadLines(): number[] {
+  return [-72, -54, -36, 36, 54, 72]
+}
+
+/** All lines used for block subdivision (majors + axis). */
+function blockLines(): number[] {
+  return [-72, -54, -36, 0, 36, 54, 72]
+}
+
 
 /** Dashed centre line on ONE road segment — never through intersections. */
 function addDashedSegment(
@@ -177,9 +188,8 @@ function addIntersectionExtras(root: THREE.Group, lines: number[]) {
       const x = lines[i]
       const z = lines[j]
       if (Math.abs(x) < PLAZA_EXCLUDE && Math.abs(z) < PLAZA_EXCLUDE) continue
-      // Traffic lights on sidewalk corners — not in the intersection asphalt
-      if ((i + j) % 3 !== 0) continue
-      if (segmentOverlapsPlaza(x, x, z - 1, z + 1, true)) continue
+      if ((i + j) % 2 !== 0) continue
+      if (Math.abs(x) < STREET_OUTER + 1 || Math.abs(z) < STREET_OUTER + 1) continue
       const ox = ROAD / 2 + 0.45
       const oz = ROAD / 2 + 0.45
       addTrafficLight(root, x + ox, z + oz)
@@ -187,7 +197,7 @@ function addIntersectionExtras(root: THREE.Group, lines: number[]) {
   }
 }
 
-/** Lay a road strip, optionally clipped so it stops at the plaza ring. */
+/** Full road if outside plaza; otherwise stubs from ring outward. */
 function addClippedRoadStrip(
   root: THREE.Group,
   mat: THREE.Material,
@@ -210,7 +220,6 @@ function addClippedRoadStrip(
     return
   }
 
-  // Two stubs from map edge → plaza ring outer curb (no asphalt through the plaza)
   const stubLen = half - clipAt
   if (stubLen < 1) return
   const stubCenter = clipAt + stubLen / 2
@@ -223,7 +232,39 @@ function addClippedRoadStrip(
   }
 }
 
-/** SimCity grid — logical road markings & sidewalk-only props. */
+/** Markings on a road segment between two orthogonal lines. */
+function addSegmentMarkings(
+  root: THREE.Group,
+  markMat: THREE.Material,
+  alongX: boolean,
+  ortho: number,
+  a: number,
+  b: number,
+  avenue: boolean,
+) {
+  const lo = Math.min(a, b) + ROAD / 2 + 0.2
+  const hi = Math.max(a, b) - ROAD / 2 - 0.2
+  const segLen = hi - lo
+  if (segLen < 2.5) return
+  const mid = (lo + hi) / 2
+  if (alongX) {
+    if (segmentOverlapsPlaza(lo, hi, ortho, ortho, false)) return
+    if (avenue) addDashedSegment(root, markMat, mid, ortho, segLen, true)
+    else {
+      addSolidSegment(root, markMat, mid, ortho, segLen, true, ROAD * 0.36)
+      addSolidSegment(root, markMat, mid, ortho, segLen, true, -ROAD * 0.36)
+    }
+  } else {
+    if (segmentOverlapsPlaza(ortho, ortho, lo, hi, true)) return
+    if (avenue) addDashedSegment(root, markMat, ortho, mid, segLen, false)
+    else {
+      addSolidSegment(root, markMat, ortho, mid, segLen, false, ROAD * 0.36)
+      addSolidSegment(root, markMat, ortho, mid, segLen, false, -ROAD * 0.36)
+    }
+  }
+}
+
+/** SimCity grid — sparse logical avenues + clean markings. */
 export function buildCityGrid(ctx: CityGridContext): THREE.Group {
   const root = new THREE.Group()
   root.name = 'city-grid'
@@ -234,7 +275,6 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
   const markMat = markingMat()
 
   const citySpan = GRID_SPAN * 2 * PITCH + ROAD
-  // Dark grout underlay — shows through tile seams
   const base = new THREE.Mesh(
     new THREE.PlaneGeometry(citySpan + 8, citySpan + 8),
     new THREE.MeshStandardMaterial({ color: 0x3a3e48, roughness: 0.95, metalness: 0.05 }),
@@ -244,46 +284,45 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
   base.receiveShadow = true
   root.add(base)
 
-  const lines: number[] = []
-  for (let i = -GRID_SPAN; i <= GRID_SPAN; i++) lines.push(i * PITCH)
+  const majors = majorRoadLines()
+  const lines = blockLines()
 
-  // Roads as discrete asphalt tiles — clipped so they meet the plaza ring instead of cutting through it
-  for (const pos of lines) {
+  // N–S majors (including ±36 flanking the plaza)
+  for (const pos of majors) {
     addClippedRoadStrip(root, asphaltMat, asphaltAlt, pos, 0, ROAD, citySpan, true, 1.55)
+  }
+  // E–W majors only beyond the ring (54/72) — ring + metro corridor handle the inner belt
+  for (const pos of majors) {
+    if (Math.abs(pos) < 50) continue
     addClippedRoadStrip(root, asphaltMat, asphaltAlt, 0, pos, ROAD, citySpan, false, 1.55)
   }
 
-  // Markings per segment BETWEEN intersections (skip plaza zone)
-  for (let li = 0; li < lines.length; li++) {
-    const roadX = lines[li]
-    const isAvenue = li % 2 === 0
+  // Central axis stubs — connect plaza ring mid-sides to the outer grid
+  addClippedRoadStrip(root, asphaltMat, asphaltAlt, 0, 0, ROAD, citySpan, true, 1.55)
+  addClippedRoadStrip(root, asphaltMat, asphaltAlt, 0, 0, ROAD, citySpan, false, 1.55)
+
+  // Continue north/south ring corridors past the plaza (metro runs on south)
+  addClippedRoadStrip(root, asphaltMat, asphaltAlt, 0, STREET_MID, ROAD, citySpan, false, 1.55)
+  addClippedRoadStrip(root, asphaltMat, asphaltAlt, 0, -STREET_MID, ROAD, citySpan, false, 1.55)
+
+  // Markings between block lines on paved roads
+  const nsRoads = [...majors, 0]
+  const ewRoads = [...majors.filter((p) => Math.abs(p) >= 54), 0, STREET_MID, -STREET_MID]
+
+  for (const roadX of nsRoads) {
+    const avenue = Math.abs(roadX) < 0.01 || Math.abs(Math.abs(roadX) - 54) < 0.01 || Math.abs(Math.abs(roadX) - 72) < 0.01
     for (let si = 0; si < lines.length - 1; si++) {
-      const z0 = lines[si] + ROAD / 2 + 0.15
-      const z1 = lines[si + 1] - ROAD / 2 - 0.15
-      const segLen = z1 - z0
-      if (segLen < 2.5) continue
-      if (segmentOverlapsPlaza(roadX, roadX, z0, z1, true)) continue
-      if (isAvenue) addDashedSegment(root, markMat, roadX, (z0 + z1) / 2, segLen, false)
-      else {
-        addSolidSegment(root, markMat, roadX, (z0 + z1) / 2, segLen, false, ROAD * 0.38)
-        addSolidSegment(root, markMat, roadX, (z0 + z1) / 2, segLen, false, -ROAD * 0.38)
-      }
+      addSegmentMarkings(root, markMat, false, roadX, lines[si], lines[si + 1], avenue)
     }
   }
-  for (let li = 0; li < lines.length; li++) {
-    const roadZ = lines[li]
-    const isAvenue = li % 2 === 0
+  for (const roadZ of ewRoads) {
+    const avenue =
+      Math.abs(roadZ) < 0.01 ||
+      Math.abs(Math.abs(roadZ) - STREET_MID) < 0.05 ||
+      Math.abs(Math.abs(roadZ) - 54) < 0.01 ||
+      Math.abs(Math.abs(roadZ) - 72) < 0.01
     for (let si = 0; si < lines.length - 1; si++) {
-      const x0 = lines[si] + ROAD / 2 + 0.15
-      const x1 = lines[si + 1] - ROAD / 2 - 0.15
-      const segLen = x1 - x0
-      if (segLen < 2.5) continue
-      if (segmentOverlapsPlaza(x0, x1, roadZ, roadZ, false)) continue
-      if (isAvenue) addDashedSegment(root, markMat, (x0 + x1) / 2, roadZ, segLen, true)
-      else {
-        addSolidSegment(root, markMat, (x0 + x1) / 2, roadZ, segLen, true, ROAD * 0.38)
-        addSolidSegment(root, markMat, (x0 + x1) / 2, roadZ, segLen, true, -ROAD * 0.38)
-      }
+      addSegmentMarkings(root, markMat, true, roadZ, lines[si], lines[si + 1], avenue)
     }
   }
 
@@ -295,15 +334,18 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
       const minZ = lines[zi] + ROAD / 2
       const maxZ = lines[zi + 1] - ROAD / 2
       if (blockOverlapsPlaza(minX, maxX, minZ, maxZ)) continue
+      if (overlapsConstructionSite(minX, maxX, minZ, maxZ)) continue
       const cx = (minX + maxX) / 2
       const cz = (minZ + maxZ) / 2
-      const w = maxX - minX
-      const d = maxZ - minZ
+      const bw = maxX - minX
+      const bd = maxZ - minZ
+      // Skip oversized "merged" cells that aren't real blocks (no road on all sides)
+      if (bw > 40 || bd > 40) continue
       for (const [x, z, lw, lh, ax] of [
-        [cx, minZ + 0.11, w, 0.18, true],
-        [cx, maxZ - 0.11, w, 0.18, true],
-        [minX + 0.11, cz, 0.18, d, false],
-        [maxX - 0.11, cz, 0.18, d, false],
+        [cx, minZ + 0.11, bw, 0.18, true],
+        [cx, maxZ - 0.11, bw, 0.18, true],
+        [minX + 0.11, cz, 0.18, bd, false],
+        [maxX - 0.11, cz, 0.18, bd, false],
       ] as const) {
         const curb = new THREE.Mesh(new THREE.BoxGeometry(ax ? lw : lw, 0.12, ax ? lh : lh), curbMat)
         curb.position.set(x, 0.06, z)
@@ -320,16 +362,21 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
       const minZ = lines[zi] + ROAD / 2
       const maxZ = lines[zi + 1] - ROAD / 2
       if (blockOverlapsPlaza(minX, maxX, minZ, maxZ)) continue
+      if (overlapsConstructionSite(minX, maxX, minZ, maxZ)) continue
 
       const cx = (minX + maxX) / 2
       const cz = (minZ + maxZ) / 2
-      const w = maxX - minX - SIDEWALK_W * 2
-      const d = maxZ - minZ - SIDEWALK_W * 2
-      const seed = xi * 97 + zi * 53 + 1000
-      const gx = xi - GRID_SPAN
-      const gz = zi - GRID_SPAN
+      const bw = maxX - minX
+      const bd = maxZ - minZ
+      if (bw > 40 || bd > 40) continue
 
-      addSidewalkTiles(root, cx, cz, maxX - minX, maxZ - minZ)
+      const w = bw - SIDEWALK_W * 2
+      const d = bd - SIDEWALK_W * 2
+      const seed = xi * 97 + zi * 53 + 1000
+      const gx = Math.round(cx / PITCH)
+      const gz = Math.round(cz / PITCH)
+
+      addSidewalkTiles(root, cx, cz, bw, bd)
 
       const kind = civicKindAt(gx, gz) ?? pickBuildingKind(gx, gz, seed)
       if (kind !== 'park') {
@@ -351,7 +398,6 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
       }
 
       buildLot(kind, { root, ctx, cx, cz, w, d, seed, frontYaw: frontYawForBlock(cx, cz) })
-
       addBlockSidewalkProps(root, ctx, minX, maxX, minZ, maxZ, seed)
 
       if (Math.abs(gx) + Math.abs(gz) <= 3 && seededRand(seed + 50) > 0.4) {
@@ -367,7 +413,6 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
         addPowerLines(root, minX + 1, cz, maxX - 1, cz, 3.4)
       }
 
-      // Street lamps on sidewalk corners — denser near plaza
       const lampChance = Math.abs(gx) + Math.abs(gz) <= 2 ? 0.25 : 0.45
       if (seededRand(seed + 31) > lampChance) {
         addStreetLampOnSidewalk(root, ctx, minX + SIDEWALK_W * 0.6, minZ + SIDEWALK_W * 0.6, frontYawForBlock(cx, cz))
@@ -378,37 +423,8 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
     }
   }
 
-  addIntersectionExtras(root, lines)
-
-  // Sidewalk aprons in the plaza→grid moat so avenues connect cleanly to the ring
-  addPlazaApproachAprons(root)
+  addIntersectionExtras(root, majors.filter((v) => Math.abs(v) >= 36))
 
   ctx.scene.add(root)
   return root
-}
-
-/** Fill the barren gap between plaza ring and first city blocks with sidewalk + curb. */
-function addPlazaApproachAprons(root: THREE.Group) {
-  const curbMat = new THREE.MeshStandardMaterial({ color: 0x4a4848, roughness: 0.85, metalness: 0.15 })
-  const inner = STREET_OUTER
-  const outer = 36 - ROAD / 2 // north edge of south avenue asphalt
-  const depth = outer - inner
-  if (depth < 1) return
-
-  const mid = (inner + outer) / 2
-  const span = 18 // cover central approach corridors
-
-  for (const sign of [-1, 1] as const) {
-    // South / north approaches (E–W band)
-    addSidewalkTiles(root, 0, sign * mid, span * 2, depth)
-    const curb = new THREE.Mesh(new THREE.BoxGeometry(span * 2, 0.12, 0.2), curbMat)
-    curb.position.set(0, 0.06, sign * (outer - 0.1))
-    root.add(curb)
-
-    // East / west approaches (N–S band)
-    addSidewalkTiles(root, sign * mid, 0, depth, span * 2)
-    const curb2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, span * 2), curbMat)
-    curb2.position.set(sign * (outer - 0.1), 0.06, 0)
-    root.add(curb2)
-  }
 }

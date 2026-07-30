@@ -4,6 +4,7 @@ import { FOUNTAIN_X, FOUNTAIN_Z } from './plazaFountain.js'
 import { SUBWAY_X, SUBWAY_Z } from './plazaSubway.js'
 import { CITY_PITCH, CITY_ROAD, CITY_GRID_SPAN } from './cityGrid.js'
 import { PLAZA_EXCLUDE } from './worldConfig.js'
+import { overlapsConstructionSite } from './constructionSite.js'
 
 // ── Palette (matches game.ts neon constants) ────────────────────────────────
 export const NEON_CYAN = 0x00f6ff
@@ -687,6 +688,7 @@ function spawnCityStreetLife(scene: THREE.Scene, droids: DroidNPC[]) {
       const cx = (gx + 0.5) * CITY_PITCH
       const cz = (gz + 0.5) * CITY_PITCH
       if (Math.abs(cx) < PLAZA_EXCLUDE && Math.abs(cz) < PLAZA_EXCLUDE) continue
+      if (overlapsConstructionSite(cx - 6, cx + 6, cz - 6, cz + 6)) continue
       // Sparse sampling — every other block-ish
       if ((gx + gz * 3 + 10) % 5 !== 0) continue
       const half = CITY_PITCH / 2 - sidewalkInset

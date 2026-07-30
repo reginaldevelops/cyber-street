@@ -288,27 +288,28 @@ export function buildPlazaStreet(ctx: PlazaStreetContext): THREE.Group {
   const crossSpan = STREET_W - 0.6
   const crossDepth = ws(3.6)
 
-  // West / east arms: zebras for N–S pedestrian crossings
-  addZebraCrossing(root, -STREET_MID, -ws(14), crossSpan, crossDepth, Math.PI / 2)
-  addStopBar(root, -STREET_MID, -ws(16.2), crossSpan, true)
-  addZebraCrossing(root, -STREET_MID, ws(14), crossSpan, crossDepth, Math.PI / 2)
-  addStopBar(root, -STREET_MID, ws(16.2), crossSpan, true)
+  // West / east arms: zebras near mid-sides
+  const zebraAlong = PLAZA_HALF - 10
+  addZebraCrossing(root, -STREET_MID, -zebraAlong, crossSpan, crossDepth, Math.PI / 2)
+  addStopBar(root, -STREET_MID, -(zebraAlong + 2.2), crossSpan, true)
+  addZebraCrossing(root, -STREET_MID, zebraAlong, crossSpan, crossDepth, Math.PI / 2)
+  addStopBar(root, -STREET_MID, zebraAlong + 2.2, crossSpan, true)
 
-  addZebraCrossing(root, STREET_MID, -ws(14), crossSpan, crossDepth, Math.PI / 2)
-  addStopBar(root, STREET_MID, -ws(16.2), crossSpan, true)
-  addZebraCrossing(root, STREET_MID, ws(14), crossSpan, crossDepth, Math.PI / 2)
-  addStopBar(root, STREET_MID, ws(16.2), crossSpan, true)
+  addZebraCrossing(root, STREET_MID, -zebraAlong, crossSpan, crossDepth, Math.PI / 2)
+  addStopBar(root, STREET_MID, -(zebraAlong + 2.2), crossSpan, true)
+  addZebraCrossing(root, STREET_MID, zebraAlong, crossSpan, crossDepth, Math.PI / 2)
+  addStopBar(root, STREET_MID, zebraAlong + 2.2, crossSpan, true)
 
-  // North / south arms: zebras for E–W pedestrian crossings (ring ↔ plaza)
-  addZebraCrossing(root, -ws(14), -STREET_MID, crossSpan, crossDepth, 0)
-  addStopBar(root, -ws(16.2), -STREET_MID, crossSpan, false)
-  addZebraCrossing(root, ws(14), -STREET_MID, crossSpan, crossDepth, 0)
-  addStopBar(root, ws(16.2), -STREET_MID, crossSpan, false)
+  // North / south arms (incl. metro south)
+  addZebraCrossing(root, -zebraAlong, -STREET_MID, crossSpan, crossDepth, 0)
+  addStopBar(root, -(zebraAlong + 2.2), -STREET_MID, crossSpan, false)
+  addZebraCrossing(root, zebraAlong, -STREET_MID, crossSpan, crossDepth, 0)
+  addStopBar(root, zebraAlong + 2.2, -STREET_MID, crossSpan, false)
 
-  addZebraCrossing(root, -ws(14), STREET_MID, crossSpan, crossDepth, 0)
-  addStopBar(root, -ws(16.2), STREET_MID, crossSpan, false)
-  addZebraCrossing(root, ws(14), STREET_MID, crossSpan, crossDepth, 0)
-  addStopBar(root, ws(16.2), STREET_MID, crossSpan, false)
+  addZebraCrossing(root, -zebraAlong, STREET_MID, crossSpan, crossDepth, 0)
+  addStopBar(root, -(zebraAlong + 2.2), STREET_MID, crossSpan, false)
+  addZebraCrossing(root, zebraAlong, STREET_MID, crossSpan, crossDepth, 0)
+  addStopBar(root, zebraAlong + 2.2, STREET_MID, crossSpan, false)
 
   // Outer sidewalk strip just outside the ring
   const outerWalk = STREET_OUTER + 0.85

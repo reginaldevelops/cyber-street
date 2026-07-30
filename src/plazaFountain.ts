@@ -4,9 +4,9 @@ const NEON_CYAN = 0x00f6ff
 const NEON_PINK = 0xff2d95
 const WATER = 0x3a88aa
 
-/** Opposite the Tesla diner at (-9,-9). */
-export const FOUNTAIN_X = 9
-export const FOUNTAIN_Z = 9
+/** Opposite the Tesla diner (NW) — SE plaza, axis-aligned. */
+export const FOUNTAIN_X = 12
+export const FOUNTAIN_Z = 14
 
 export interface PlazaFountainContext {
   scene: THREE.Scene

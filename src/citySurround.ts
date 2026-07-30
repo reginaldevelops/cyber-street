@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { buildModernTower, towerColliderMeshes } from './modernBuilding.js'
 import { buildPlazaStreet } from './plazaStreet.js'
 import { buildCityGrid } from './cityGrid.js'
+import { buildConstructionSite } from './constructionSite.js'
 import { buildPlazaDiner } from './plazaDiner.js'
 import { buildPlazaFountain } from './plazaFountain.js'
 import { buildPlazaSubway } from './plazaSubway.js'
@@ -717,6 +718,7 @@ export function buildCitySurround(ctx: CitySurroundContext): CitySurroundStats {
   buildPlazaDiner({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
   buildPlazaFountain({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
   buildPlazaSubway({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
+  buildConstructionSite({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
   buildCityGrid({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
 
   let meshCount = 0

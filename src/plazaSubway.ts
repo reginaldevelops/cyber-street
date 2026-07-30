@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { makeNeonLabel } from './buildingKit.js'
+import { STREET_MID } from './worldConfig.js'
 
 const NEON_CYAN = 0x00f6ff
 const NEON_YELLOW = 0xffe14d
@@ -8,13 +9,12 @@ const METRO_BLUE = 0x4488ff
 const METRO_PINK = 0xff2d95
 
 /**
- * Metro station on the south plaza approach (E–W avenue at z=36).
- * Track runs edge-to-edge across the map; station serves the plaza without overlapping fountain/diner.
+ * Metro station on the south plaza ring avenue.
+ * Track runs edge-to-edge across the map along the south ring centerline.
  */
 export const SUBWAY_X = 0
-export const SUBWAY_Z = 36
-/** Track centerline (same E–W avenue as the station). */
-export const SUBWAY_TRACK_Z = 36
+export const SUBWAY_Z = STREET_MID
+export const SUBWAY_TRACK_Z = STREET_MID
 export const SUBWAY_TRACK_Y = 0.85
 export const SUBWAY_TRACK_HALF = 74
 

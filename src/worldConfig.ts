@@ -1,5 +1,5 @@
-/** Plaza hub — fixed size (not scaled). */
-export const PLAZA_HALF = 20
+/** Plaza hub — sized so the south edge meets the metro avenue. */
+export const PLAZA_HALF = 29
 export const PLAZA_SIZE = PLAZA_HALF * 2
 
 export const STREET_INNER = PLAZA_HALF + 0.5
@@ -23,5 +23,5 @@ export const TILE_SIZE = 3.2
 /** Identity — kept so plaza modules need no churn. */
 export const ws = (n: number) => n
 
-export const ISO_FRUSTUM = 46
-export const ISO_CAM_OFFSET = 30
+export const ISO_FRUSTUM = 52
+export const ISO_CAM_OFFSET = 32
