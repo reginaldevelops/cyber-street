@@ -180,19 +180,20 @@ export async function loadHitemPlayer(): Promise<PlayerRig> {
   throw lastErr ?? new Error('No player model could be loaded')
 }
 
-/** Crossfade locomotion clips when available. Speed scales walk cadence. */
+/** Crossfade locomotion clips. Negative timeScale = calm backpedal. */
 export function updatePlayerAnimations(
   rig: Pick<PlayerRig, 'mixer' | 'idleAction' | 'walkAction' | 'runAction'>,
   dt: number,
   moving: boolean,
   sprint: boolean,
   speedRatio = 1,
+  backpedaling = false,
 ) {
   if (rig.mixer) rig.mixer.update(dt)
   if (!rig.walkAction && !rig.idleAction) return
 
   const target = moving
-    ? sprint && rig.runAction
+    ? sprint && rig.runAction && !backpedaling
       ? rig.runAction
       : rig.walkAction ?? rig.idleAction
     : rig.idleAction ?? rig.walkAction
@@ -203,8 +204,9 @@ export function updatePlayerAnimations(
   for (const action of all) {
     if (action === target) {
       action.enabled = true
-      const cadence =
+      let cadence =
         action === rig.runAction ? 1.1 + speedRatio * 0.15 : 0.85 + speedRatio * 0.45
+      if (backpedaling) cadence = -(0.7 + speedRatio * 0.25)
       action.setEffectiveTimeScale(moving ? cadence : 1)
       action.setEffectiveWeight(THREE.MathUtils.damp(action.getEffectiveWeight(), 1, 10, dt))
       if (!action.isRunning()) action.play()

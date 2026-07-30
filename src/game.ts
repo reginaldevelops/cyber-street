@@ -64,8 +64,10 @@ const ENEMY_HP = 3
 const ENEMY_SPEED = 2.6
 const ENEMY_RESPAWN = 2.6
 
-/** Combat off while we focus on world exploration — re-enable later. */
-const COMBAT_ENABLED = false
+/** Combat / aiming on — mouse faces, LMB shoots. */
+const COMBAT_ENABLED = true
+/** Master mute — no menu/game music. */
+const AUDIO_ENABLED = false
 
 const NEON_CYAN = 0x00f6ff
 const NEON_PINK = 0xff2d95
@@ -262,8 +264,9 @@ export class Game {
 
   private setupMusic() {
     this.bgMusic.loop = true
-    this.bgMusic.volume = 0.42
-    this.bgMusic.preload = 'auto'
+    this.bgMusic.volume = AUDIO_ENABLED ? 0.42 : 0
+    this.bgMusic.muted = !AUDIO_ENABLED
+    this.bgMusic.preload = AUDIO_ENABLED ? 'auto' : 'none'
   }
 
   private setupStartScreen() {
@@ -273,7 +276,7 @@ export class Game {
     document.body.classList.add('menu-mode')
 
     const unlockMenuMusic = () => {
-      if (this.menuMusicPlaying || this.playing) return
+      if (!AUDIO_ENABLED || this.menuMusicPlaying || this.playing) return
       this.bgMusic.play().then(() => {
         this.menuMusicPlaying = true
         this.audioHintEl?.classList.add('hidden')
@@ -282,34 +285,48 @@ export class Game {
       })
     }
 
-    this.startScreenEl.addEventListener('click', unlockMenuMusic)
+    if (AUDIO_ENABLED) {
+      this.startScreenEl.addEventListener('click', unlockMenuMusic)
+    }
     playBtn.addEventListener('click', (e) => {
       e.stopPropagation()
       this.enterGame()
     })
 
-    // Browsers blokkeren autoplay — hint tonen tot eerste klik
-    this.bgMusic.play().then(() => {
-      this.menuMusicPlaying = true
+    if (AUDIO_ENABLED) {
+      this.bgMusic.play().then(() => {
+        this.menuMusicPlaying = true
+        this.audioHintEl?.classList.add('hidden')
+      }).catch(() => {
+        this.audioHintEl?.classList.remove('hidden')
+      })
+    } else {
       this.audioHintEl?.classList.add('hidden')
-    }).catch(() => {
-      this.audioHintEl?.classList.remove('hidden')
-    })
+    }
   }
 
   private enterGame() {
     if (this.playing) return
     this.playing = true
 
-    this.bgMusic.pause()
-    this.bgMusic.currentTime = 0
+    if (AUDIO_ENABLED) {
+      this.bgMusic.pause()
+      this.bgMusic.currentTime = 0
+    }
     this.menuMusicPlaying = false
 
     this.startScreenEl?.classList.add('hidden')
     document.body.classList.remove('menu-mode')
     this.player.visible = true
+    this.gunHolder.visible = COMBAT_ENABLED
+    this.gun.visible = COMBAT_ENABLED
     this.hintEl.classList.remove('hidden')
     this.conceptPanelEl?.classList.remove('hidden')
+    if (COMBAT_ENABLED) {
+      this.crosshairEl?.classList.remove('hidden')
+      this.hintEl.innerHTML =
+        '<b>WASD</b> lopen · <b>Shift</b> sprint · <b>Muis</b> mikken · <b>LMB</b> schieten'
+    }
   }
 
   private setupPost() {
@@ -570,6 +587,10 @@ export class Game {
       this.player.visible = false
       this.scene.add(this.player)
       this.flickerMats.push({ mat: this.playerVisorMat, base: this.playerVisorMat.emissiveIntensity, t: Math.random() * 2 })
+      if (COMBAT_ENABLED) {
+        this.gunHolder.visible = true
+        this.gun.visible = true
+      }
       return
     }
 
@@ -617,6 +638,10 @@ export class Game {
       this.player.position.set(0, 0, ws(10))
       this.player.visible = this.playing
       this.scene.add(this.player)
+      if (COMBAT_ENABLED) {
+        this.gunHolder.visible = true
+        this.gun.visible = true
+      }
 
       if (rig.mixer) {
         console.info('[player] animation clips ready — walk/idle will play when moving')
@@ -939,7 +964,7 @@ export class Game {
     this.sewerCooldown = Math.max(0, this.sewerCooldown - dt)
     this.updateSewerProximity()
 
-    // Aim yaw always tracks mouse (for shooting / look)
+    // Aim yaw always tracks mouse — body faces aim (twin-stick / shooter style)
     const dx = this.aimPoint.x - this.player.position.x
     const dz = this.aimPoint.z - this.player.position.z
     if (dx * dx + dz * dz > 0.04) {
@@ -950,19 +975,21 @@ export class Game {
     const moving = speed > MOVE_FACE_THRESHOLD
     const speedRatio = THREE.MathUtils.clamp(speed / SPRINT_SPEED, 0, 1)
 
-    // Body faces travel direction while moving → legs never moonwalk.
-    // When idle (or firing in combat), face the aim point like twin-stick ARPGs.
-    let targetFace = this.faceYaw
-    if (COMBAT_ENABLED && this.firing) {
-      targetFace = this.aimYaw
-    } else if (moving) {
-      targetFace = Math.atan2(this.velocity.x, this.velocity.z)
-    } else if (COMBAT_ENABLED) {
-      targetFace = this.aimYaw
-    }
-    const turnRate = moving ? FACE_TURN : FACE_TURN_IDLE
-    this.faceYaw = dampAngle(this.faceYaw, targetFace, turnRate, dt)
+    // Always face the mouse / aim point
+    this.faceYaw = dampAngle(this.faceYaw, this.aimYaw, FACE_TURN, dt)
     this.player.rotation.y = this.faceYaw
+
+    // Local velocity relative to facing: +Z = forward, -Z = backpedal
+    const localVel = this.velocity.clone().applyAxisAngle(
+      new THREE.Vector3(0, 1, 0), -this.faceYaw
+    )
+    const forwardDot = localVel.z
+    const backpedaling = moving && forwardDot < -0.08
+    // Calm backpedal — cap speed while walking backward facing the mouse
+    if (backpedaling) {
+      const cap = WALK_SPEED * 0.62
+      if (this.velocity.length() > cap) this.velocity.setLength(cap)
+    }
 
     updatePlayerAnimations(
       {
@@ -973,22 +1000,27 @@ export class Game {
       },
       dt,
       moving,
-      this.keys.sprint && hasInput,
+      this.keys.sprint && hasInput && !backpedaling,
       speedRatio,
+      backpedaling,
     )
 
     if (this.playerMixer) {
-      // GLB clips drive locomotion
+      // GLB clips drive locomotion (timeScale flipped when backpedaling)
     } else if (moving) {
-      // Procedural walk locked to body forward (body already faces velocity)
-      this.walkPhase += dt * (7.5 + speedRatio * 6.5)
-      const amp = 0.48 * Math.min(speedRatio * 1.8, 1)
-      const swing = Math.sin(this.walkPhase) * amp
+      // Procedural walk: reverse swing when moving backward while facing mouse
+      const cadence = backpedaling ? 5.5 + speedRatio * 3.5 : 7.5 + speedRatio * 6.5
+      this.walkPhase += dt * cadence
+      const amp = (backpedaling ? 0.32 : 0.48) * Math.min(speedRatio * 1.8, 1)
+      const dir = backpedaling ? -1 : 1
+      const swing = Math.sin(this.walkPhase) * amp * dir
       this.legL.rotation.x = swing
       this.legR.rotation.x = -swing
-      this.armL.rotation.x = -swing * 0.55
-      this.armR.rotation.x = swing * 0.55
-      this.playerBody.position.y = Math.abs(Math.sin(this.walkPhase * 2)) * 0.04 * Math.min(speedRatio * 1.6, 1)
+      // Keep gun arm steadier; free arm counters legs
+      this.armL.rotation.x = -swing * (COMBAT_ENABLED ? 0.25 : 0.55)
+      this.armR.rotation.x = swing * (COMBAT_ENABLED ? 0.12 : 0.55)
+      this.playerBody.position.y =
+        Math.abs(Math.sin(this.walkPhase * 2)) * (backpedaling ? 0.02 : 0.04) * Math.min(speedRatio * 1.6, 1)
     } else {
       this.legL.rotation.x = THREE.MathUtils.damp(this.legL.rotation.x, 0, 14, dt)
       this.legR.rotation.x = THREE.MathUtils.damp(this.legR.rotation.x, 0, 14, dt)
@@ -997,10 +1029,7 @@ export class Game {
       this.playerBody.position.y = THREE.MathUtils.damp(this.playerBody.position.y, 0, 14, dt)
     }
 
-    // Lean into acceleration / strafe relative to facing
-    const localVel = this.velocity.clone().applyAxisAngle(
-      new THREE.Vector3(0, 1, 0), -this.faceYaw
-    )
+    // Lean into strafe / accel relative to facing
     const targetLeanZ = THREE.MathUtils.clamp(-localVel.x * 0.03, -0.1, 0.1)
     const targetLeanX = THREE.MathUtils.clamp(localVel.z * 0.022, -0.08, 0.08)
     this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 12, dt)
@@ -1090,7 +1119,7 @@ export class Game {
     this.exitSewerBtn?.classList.add('hidden')
     this.conceptPanelEl?.classList.remove('hidden')
     this.hintEl.innerHTML =
-      '<b>WASD</b> lopen · <b>Shift</b> sprinten · <b>Muis</b> kijken · <b>1–4</b> grate-variant'
+      '<b>WASD</b> lopen · <b>Shift</b> sprint · <b>Muis</b> mikken · <b>LMB</b> schieten'
   }
 
   private updateCamera(dt: number) {

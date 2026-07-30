@@ -23,5 +23,5 @@ export const TILE_SIZE = 3.2
 /** Identity — kept so plaza modules need no churn. */
 export const ws = (n: number) => n
 
-export const ISO_FRUSTUM = 52
-export const ISO_CAM_OFFSET = 32
+export const ISO_FRUSTUM = 28
+export const ISO_CAM_OFFSET = 16

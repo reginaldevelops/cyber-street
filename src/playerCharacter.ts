@@ -204,7 +204,7 @@ export function buildPlayerCharacter(
   gunHolder.position.set(0.38, 1.05, 0.22)
   gunHolder.rotation.set(-0.35, -0.1, 0.1)
   gunHolder.add(gun)
-  gunHolder.visible = false
+  gunHolder.visible = true
   body.add(gunHolder)
 
   const muzzleLight = new THREE.PointLight(0xff8833, 0, 7, 2)
