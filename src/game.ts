@@ -12,7 +12,12 @@ import {
   type GroundConceptId,
 } from './groundConcepts.js'
 import { buildCitySurround } from './citySurround.js'
-import { loadHitemPlayer, updatePlayerAnimations } from './playerModel.js'
+import {
+  loadDirectionalRunner,
+  loadHitemPlayer,
+  locomotionFromLocalVelocity,
+  updatePlayerAnimations,
+} from './playerModel.js'
 import { buildPlayerCharacter } from './playerCharacter.js'
 import {
   buildSewerTunnel,
@@ -142,6 +147,10 @@ export class Game {
   private playerIdleAction?: THREE.AnimationAction | null
   private playerWalkAction?: THREE.AnimationAction | null
   private playerRunAction?: THREE.AnimationAction | null
+  private playerFrontAction?: THREE.AnimationAction | null
+  private playerBackAction?: THREE.AnimationAction | null
+  private playerLeftAction?: THREE.AnimationAction | null
+  private playerRightAction?: THREE.AnimationAction | null
   private playerHasSkeleton = false
   private walkPhase = 0
 
@@ -564,12 +573,10 @@ export class Game {
   // ── Speler ──────────────────────────────────────────────────────────────
 
   private buildIsoPlayer() {
-    // Voxel street-runner matches tiled/pixel world; GLB via ?player=rigged
-    const useGlb = new URLSearchParams(window.location.search).get('player') === 'rigged'
-      || new URLSearchParams(window.location.search).get('player') === 'hitem'
-      || new URLSearchParams(window.location.search).get('player') === 'legacy'
+    // Default: Mixamo directional runner. ?player=voxel | rigged | hitem | legacy
+    const mode = new URLSearchParams(window.location.search).get('player') ?? 'runner'
 
-    if (!useGlb) {
+    if (mode === 'voxel') {
       const rig = buildPlayerCharacter(NEON_CYAN, NEON_PINK, NEON_ORANGE)
       this.player = rig.root
       this.playerBody = rig.body
@@ -611,46 +618,73 @@ export class Game {
     this.player.visible = false
     this.scene.add(this.player)
 
-    void this.loadHitemPlayerModel()
+    if (mode === 'rigged' || mode === 'hitem' || mode === 'legacy') {
+      void this.loadHitemPlayerModel()
+    } else {
+      void this.loadDirectionalRunnerModel()
+    }
+  }
+
+  private applyLoadedPlayerRig(rig: Awaited<ReturnType<typeof loadDirectionalRunner>>) {
+    if (this.player.parent) this.player.parent.remove(this.player)
+    this.player = rig.root
+    this.playerBody = rig.body
+    this.legL = rig.legL
+    this.legR = rig.legR
+    this.armL = rig.armL
+    this.armR = rig.armR
+    this.gun = rig.gun
+    this.gunHolder = rig.gunHolder
+    this.muzzle = rig.muzzle
+    this.muzzleLight = rig.muzzleLight
+    this.playerVisorMat = rig.visorMat
+    this.playerMixer = rig.mixer
+    this.playerIdleAction = rig.idleAction
+    this.playerWalkAction = rig.walkAction
+    this.playerRunAction = rig.runAction
+    this.playerFrontAction = rig.frontAction
+    this.playerBackAction = rig.backAction
+    this.playerLeftAction = rig.leftAction
+    this.playerRightAction = rig.rightAction
+    this.playerHasSkeleton = rig.hasSkeleton
+
+    this.player.position.set(0, 0, ws(10))
+    this.player.visible = this.playing
+    this.scene.add(this.player)
+    if (COMBAT_ENABLED) {
+      this.gunHolder.visible = true
+      this.gun.visible = true
+    }
+
+    if (this.playerVisorMat.emissiveIntensity > 0) {
+      this.flickerMats.push({
+        mat: this.playerVisorMat,
+        base: this.playerVisorMat.emissiveIntensity,
+        t: Math.random() * 2,
+      })
+    }
+  }
+
+  private async loadDirectionalRunnerModel() {
+    try {
+      const rig = await loadDirectionalRunner()
+      this.applyLoadedPlayerRig(rig)
+      console.info('[player] directional run clips ready (front/back/left/right)')
+    } catch (err) {
+      console.error('Failed to load directional runner — falling back to Hitem', err)
+      await this.loadHitemPlayerModel()
+    }
   }
 
   private async loadHitemPlayerModel() {
     try {
       const rig = await loadHitemPlayer()
-      this.player.remove(this.playerBody)
-      this.player = rig.root
-      this.playerBody = rig.body
-      this.legL = rig.legL
-      this.legR = rig.legR
-      this.armL = rig.armL
-      this.armR = rig.armR
-      this.gun = rig.gun
-      this.gunHolder = rig.gunHolder
-      this.muzzle = rig.muzzle
-      this.muzzleLight = rig.muzzleLight
-      this.playerVisorMat = rig.visorMat
-      this.playerMixer = rig.mixer
-      this.playerIdleAction = rig.idleAction
-      this.playerWalkAction = rig.walkAction
-      this.playerRunAction = rig.runAction
-      this.playerHasSkeleton = rig.hasSkeleton
-
-      this.player.position.set(0, 0, ws(10))
-      this.player.visible = this.playing
-      this.scene.add(this.player)
-      if (COMBAT_ENABLED) {
-        this.gunHolder.visible = true
-        this.gun.visible = true
-      }
+      this.applyLoadedPlayerRig(rig)
 
       if (rig.mixer) {
         console.info('[player] animation clips ready — walk/idle will play when moving')
       } else if (rig.hasSkeleton) {
         console.info('[player] rigged model loaded (no animation clips yet — static pose + bob)')
-      }
-
-      if (this.playerVisorMat.emissiveIntensity > 0) {
-        this.flickerMats.push({ mat: this.playerVisorMat, base: this.playerVisorMat.emissiveIntensity, t: Math.random() * 2 })
       }
     } catch (err) {
       console.error('Failed to load Hitem3D player model', err)
@@ -991,18 +1025,24 @@ export class Game {
       if (this.velocity.length() > cap) this.velocity.setLength(cap)
     }
 
+    const locoDir = locomotionFromLocalVelocity(localVel, moving)
     updatePlayerAnimations(
       {
         mixer: this.playerMixer,
         idleAction: this.playerIdleAction,
         walkAction: this.playerWalkAction,
         runAction: this.playerRunAction,
+        frontAction: this.playerFrontAction,
+        backAction: this.playerBackAction,
+        leftAction: this.playerLeftAction,
+        rightAction: this.playerRightAction,
       },
       dt,
       moving,
       this.keys.sprint && hasInput && !backpedaling,
       speedRatio,
       backpedaling,
+      locoDir,
     )
 
     if (this.playerMixer) {

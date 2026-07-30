@@ -17,6 +17,11 @@ export interface PlayerRig {
   idleAction?: THREE.AnimationAction | null
   walkAction?: THREE.AnimationAction | null
   runAction?: THREE.AnimationAction | null
+  /** Mixamo directional run clips (mouse-face locomotion). */
+  frontAction?: THREE.AnimationAction | null
+  backAction?: THREE.AnimationAction | null
+  leftAction?: THREE.AnimationAction | null
+  rightAction?: THREE.AnimationAction | null
   hasSkeleton: boolean
 }
 
