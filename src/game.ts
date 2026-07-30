@@ -62,8 +62,6 @@ const GUN_RANGE = 90
 const AIM_ASSIST_ANGLE = 0.055
 /** Max angle from body forward to aim (rad). ~100° — blocks shooting behind your back. */
 const FIRE_ARC = (100 * Math.PI) / 180
-/** Mixamo bind faces -Z; add π at the player root (not on the armature) so look matches yaw. */
-const MIXAMO_YAW_OFFSET = Math.PI
 
 const PLAYER_LIMIT_X = CITY_HALF - PLAYER_BOUNDARY_INSET
 const PLAYER_LIMIT_Z = CITY_HALF - PLAYER_BOUNDARY_INSET
@@ -1021,9 +1019,7 @@ export class Game {
     } else {
       this.faceYaw = dampAngle(this.faceYaw, this.aimYaw, FACE_TURN_IDLE, dt)
     }
-    // Logical faceYaw aims +Z; Mixamo mesh faces -Z — offset only on root yaw
-    const yawOffset = this.playerHasSkeleton ? MIXAMO_YAW_OFFSET : 0
-    this.player.rotation.y = this.faceYaw + yawOffset
+    this.player.rotation.y = this.faceYaw
 
     // Local velocity vs facing — with move-facing this is mostly +Z while running
     const localVel = this.velocity.clone().applyAxisAngle(
