@@ -12,15 +12,47 @@ import {
   type GroundConceptId,
 } from './groundConcepts.js'
 import { buildCitySurround } from './citySurround.js'
-import { loadHitemPlayer, updatePlayerAnimations } from './playerModel.js'
+import {
+  loadDirectionalRunner,
+  loadHitemPlayer,
+  locomotionWeightsFromLocalVelocity,
+  updatePlayerAnimations,
+} from './playerModel.js'
+import { buildPlayerCharacter } from './playerCharacter.js'
+import {
+  buildSewerEntrance,
+  SEWER_ENTRANCE_X,
+  SEWER_ENTRANCE_Z,
+  SEWER_ENTER_RADIUS,
+} from './sewer.js'
+import { DungeonSystem } from './dungeon/DungeonSystem.js'
+import { tryAddItem, createItemInstance } from './dungeon/dungeonInventory.js'
+import {
+  applyNearestTextures,
+  applyPixelResolution,
+  createPixelQuantizePass,
+  PIXEL_SCALE,
+} from './pixelLook.js'
+import {
+  CITY_HALF,
+  ISO_CAM_OFFSET as ISO_CAM_DIST,
+  ISO_FRUSTUM,
+  PLAZA_HALF,
+  PLAZA_SIZE,
+  PLAYER_BOUNDARY_INSET,
+  ws,
+} from './worldConfig.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
-const WALK_SPEED = 5.4
-const SPRINT_SPEED = 8.8
-const ACCEL = 14
-const DECEL = 11
+const WALK_SPEED = 5.6
+const SPRINT_SPEED = 9.2
+const ACCEL = 18
+const DECEL = 16
+/** How quickly the body turns to face move / aim (higher = snappier). */
+const FACE_TURN = 14
+const FACE_TURN_IDLE = 8
+const MOVE_FACE_THRESHOLD = 0.35
 
-const ISO_FRUSTUM = 34
-const ISO_CAM_OFFSET = new THREE.Vector3(26, 26, 26)
+const ISO_CAM_OFFSET = new THREE.Vector3(ISO_CAM_DIST, ISO_CAM_DIST, ISO_CAM_DIST)
 const ISO_FOLLOW = 9
 const ISO_FORWARD = new THREE.Vector3(-1, 0, -1).normalize()
 const ISO_RIGHT = new THREE.Vector3(1, 0, -1).normalize()
@@ -28,19 +60,21 @@ const ISO_RIGHT = new THREE.Vector3(1, 0, -1).normalize()
 const FIRE_INTERVAL = 0.115
 const GUN_RANGE = 90
 const AIM_ASSIST_ANGLE = 0.055
+/** Max angle from body forward to aim (rad). ~100° — blocks shooting behind your back. */
+const FIRE_ARC = (100 * Math.PI) / 180
 
-const PLAZA_SIZE = 40
-const PLAZA_HALF = PLAZA_SIZE / 2
-const PLAYER_LIMIT_X = PLAZA_HALF - 2.5
-const PLAYER_LIMIT_Z = PLAZA_HALF - 2.5
+const PLAYER_LIMIT_X = CITY_HALF - PLAYER_BOUNDARY_INSET
+const PLAYER_LIMIT_Z = CITY_HALF - PLAYER_BOUNDARY_INSET
 
 const ENEMY_COUNT = 3
 const ENEMY_HP = 3
 const ENEMY_SPEED = 2.6
 const ENEMY_RESPAWN = 2.6
 
-/** Combat off while we focus on world exploration — re-enable later. */
-const COMBAT_ENABLED = false
+/** Combat / aiming on — mouse faces, LMB shoots. */
+const COMBAT_ENABLED = true
+/** Master mute — no menu/game music. */
+const AUDIO_ENABLED = false
 
 const NEON_CYAN = 0x00f6ff
 const NEON_PINK = 0xff2d95
@@ -104,6 +138,8 @@ export class Game {
   private playerBody = new THREE.Group()
   private legL = new THREE.Group()
   private legR = new THREE.Group()
+  private armL = new THREE.Group()
+  private armR = new THREE.Group()
   private gun!: THREE.Group
   private gunHolder = new THREE.Group()
   private muzzle = new THREE.Object3D()
@@ -113,12 +149,18 @@ export class Game {
   private playerIdleAction?: THREE.AnimationAction | null
   private playerWalkAction?: THREE.AnimationAction | null
   private playerRunAction?: THREE.AnimationAction | null
+  private playerFrontAction?: THREE.AnimationAction | null
+  private playerBackAction?: THREE.AnimationAction | null
+  private playerLeftAction?: THREE.AnimationAction | null
+  private playerRightAction?: THREE.AnimationAction | null
   private playerHasSkeleton = false
   private walkPhase = 0
 
   private velocity = new THREE.Vector3()
   private gunKick = 0
   private aimYaw = 0
+  /** Body facing — follows move dir so locomotion never moonwalks. */
+  private faceYaw = 0
   private aimPoint = new THREE.Vector3(0, 0, 8)
   private mouseScreen = { x: 0, y: 0 }
 
@@ -153,6 +195,18 @@ export class Game {
   private playing = false
   private startScreenEl: HTMLElement | null
   private audioHintEl: HTMLElement | null
+  private sewerPromptEl: HTMLElement | null
+  private exitSewerBtn: HTMLButtonElement | null
+  private inSewer = false
+  private sewerCooldown = 0
+  private sewerEntrance: THREE.Group | null = null
+  private dungeon!: DungeonSystem
+  private surfaceObjects: THREE.Object3D[] = []
+  private surfaceLights: THREE.Light[] = []
+  private surfaceReturnPos = new THREE.Vector3(SEWER_ENTRANCE_X, 0, SEWER_ENTRANCE_Z + 3.2)
+  private savedBg = new THREE.Color()
+  private savedFogColor = new THREE.Color()
+  private savedFogDensity = 0.0055
 
   private menuCamAngle = 0
 
@@ -164,18 +218,28 @@ export class Game {
     this.conceptPanelEl = document.getElementById('concept-panel')
     this.startScreenEl = document.getElementById('start-screen')
     this.audioHintEl = document.getElementById('start-audio-hint')
+    this.sewerPromptEl = document.getElementById('sewer-prompt')
+    this.exitSewerBtn = document.getElementById('exit-sewer-btn') as HTMLButtonElement | null
     if (!COMBAT_ENABLED) {
       this.crosshairEl?.classList.add('hidden')
       document.getElementById('scoreboard')?.classList.add('hidden')
     }
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true })
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this.exitSewerBtn?.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (this.inSewer && !this.dungeon.canExit()) return
+      this.exitSewer()
+    })
+
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' })
+    this.renderer.setPixelRatio(1)
     this.renderer.setSize(container.clientWidth, container.clientHeight)
     this.renderer.shadowMap.enabled = true
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.shadowMap.type = THREE.BasicShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.38
+    this.renderer.toneMappingExposure = 1.05
+    this.renderer.domElement.style.imageRendering = 'auto'
     container.appendChild(this.renderer.domElement)
 
     const aspect = container.clientWidth / Math.max(container.clientHeight, 1)
@@ -185,12 +249,12 @@ export class Game {
       ISO_FRUSTUM / 2,
       -ISO_FRUSTUM / 2,
       0.1,
-      220,
+      600,
     )
 
     const pmrem = new THREE.PMREMGenerator(this.renderer)
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
-    this.scene.environmentIntensity = 0.42
+    this.scene.environmentIntensity = 0.55
 
     this.setupPost()
     this.setupMusic()
@@ -213,8 +277,9 @@ export class Game {
 
   private setupMusic() {
     this.bgMusic.loop = true
-    this.bgMusic.volume = 0.42
-    this.bgMusic.preload = 'auto'
+    this.bgMusic.volume = AUDIO_ENABLED ? 0.42 : 0
+    this.bgMusic.muted = !AUDIO_ENABLED
+    this.bgMusic.preload = AUDIO_ENABLED ? 'auto' : 'none'
   }
 
   private setupStartScreen() {
@@ -224,7 +289,7 @@ export class Game {
     document.body.classList.add('menu-mode')
 
     const unlockMenuMusic = () => {
-      if (this.menuMusicPlaying || this.playing) return
+      if (!AUDIO_ENABLED || this.menuMusicPlaying || this.playing) return
       this.bgMusic.play().then(() => {
         this.menuMusicPlaying = true
         this.audioHintEl?.classList.add('hidden')
@@ -233,70 +298,92 @@ export class Game {
       })
     }
 
-    this.startScreenEl.addEventListener('click', unlockMenuMusic)
+    if (AUDIO_ENABLED) {
+      this.startScreenEl.addEventListener('click', unlockMenuMusic)
+    }
     playBtn.addEventListener('click', (e) => {
       e.stopPropagation()
       this.enterGame()
     })
 
-    // Browsers blokkeren autoplay — hint tonen tot eerste klik
-    this.bgMusic.play().then(() => {
-      this.menuMusicPlaying = true
+    if (AUDIO_ENABLED) {
+      this.bgMusic.play().then(() => {
+        this.menuMusicPlaying = true
+        this.audioHintEl?.classList.add('hidden')
+      }).catch(() => {
+        this.audioHintEl?.classList.remove('hidden')
+      })
+    } else {
       this.audioHintEl?.classList.add('hidden')
-    }).catch(() => {
-      this.audioHintEl?.classList.remove('hidden')
-    })
+    }
   }
 
   private enterGame() {
     if (this.playing) return
     this.playing = true
 
-    this.bgMusic.pause()
-    this.bgMusic.currentTime = 0
+    if (AUDIO_ENABLED) {
+      this.bgMusic.pause()
+      this.bgMusic.currentTime = 0
+    }
     this.menuMusicPlaying = false
 
     this.startScreenEl?.classList.add('hidden')
     document.body.classList.remove('menu-mode')
     this.player.visible = true
+    this.gunHolder.visible = COMBAT_ENABLED
+    this.gun.visible = COMBAT_ENABLED
     this.hintEl.classList.remove('hidden')
     this.conceptPanelEl?.classList.remove('hidden')
+    if (COMBAT_ENABLED) {
+      this.crosshairEl?.classList.remove('hidden')
+      this.hintEl.innerHTML =
+        '<b>WASD</b> lopen · <b>Shift</b> sprint · <b>Muis</b> mikken · <b>LMB</b> schieten'
+    }
   }
 
   private setupPost() {
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.48, 0.48, 0.82)
+    // Daytime: lighter bloom so neon accents stay readable without night glow
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.14, 0.45, 0.92)
     this.composer.addPass(this.bloom)
+    this.composer.addPass(createPixelQuantizePass())
     this.composer.addPass(new OutputPass())
   }
 
   // ── Wereld ──────────────────────────────────────────────────────────────
 
   private buildWorld() {
-    this.scene.background = new THREE.Color(0x141024)
-    this.scene.fog = new THREE.FogExp2(0x221636, 0.016)
+    // Daytime, slightly muted — still clear day, not night
+    this.scene.background = new THREE.Color(0x6a9ac8)
+    this.scene.fog = new THREE.FogExp2(0x8aabcc, 0.0055)
 
-    this.scene.add(new THREE.AmbientLight(0x665577, 0.45))
+    this.scene.add(new THREE.AmbientLight(0xffefe0, 0.48))
 
-    const hemi = new THREE.HemisphereLight(0x8aadff, 0x281018, 0.85)
+    const hemi = new THREE.HemisphereLight(0xb8d4f0, 0x9a8868, 0.92)
     this.scene.add(hemi)
 
-    const moon = new THREE.DirectionalLight(0xb8c4ff, 0.78)
-    moon.position.set(-14, 26, -10)
-    moon.castShadow = true
-    moon.shadow.mapSize.set(2048, 2048)
-    moon.shadow.camera.near = 1
-    moon.shadow.camera.far = 100
-    moon.shadow.camera.left = -42
-    moon.shadow.camera.right = 42
-    moon.shadow.camera.top = 42
-    moon.shadow.camera.bottom = -42
-    this.scene.add(moon)
+    const sun = new THREE.DirectionalLight(0xffecd0, 1.05)
+    sun.position.set(22, 38, 14)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(2048, 2048)
+    sun.shadow.camera.near = 1
+    sun.shadow.camera.far = 160
+    sun.shadow.camera.left = -72
+    sun.shadow.camera.right = 72
+    sun.shadow.camera.top = 72
+    sun.shadow.camera.bottom = -72
+    sun.shadow.bias = -0.0008
+    this.scene.add(sun)
 
-    const fill = new THREE.DirectionalLight(0xff88cc, 0.22)
-    fill.position.set(8, 10, 14)
+    const fill = new THREE.DirectionalLight(0xa0bce8, 0.32)
+    fill.position.set(-16, 18, -12)
     this.scene.add(fill)
+
+    const rim = new THREE.DirectionalLight(0xffe0b8, 0.14)
+    rim.position.set(6, 8, -20)
+    this.scene.add(rim)
 
     this.buildPlazaFloor(this.groundConcept)
     this.buildCentralHub()
@@ -307,23 +394,48 @@ export class Game {
       colliders: this.worldColliders,
     })
 
+    // No rain during clear daytime
     this.rain = this.makeRain()
-    this.scene.add(this.rain)
+    this.rain.visible = false
 
     this.ambience = populateSceneAmbience(this.scene, this.flickerMats)
+    applyNearestTextures(this.scene)
+
+    // Surface sewer hatch (dungeon generates underground on enter)
+    this.sewerEntrance = buildSewerEntrance({
+      scene: this.scene,
+      flickerMats: this.flickerMats,
+      colliders: this.worldColliders,
+    })
+    this.scene.add(this.sewerEntrance)
+
+    // Snapshot surface objects/lights so we can hide them in the dungeon
+    for (const child of [...this.scene.children]) {
+      if ((child as THREE.Light).isLight) {
+        this.surfaceLights.push(child as THREE.Light)
+        continue
+      }
+      this.surfaceObjects.push(child)
+    }
+
+    this.dungeon = new DungeonSystem(this.scene)
+    // Starter meds for the first dive
+    tryAddItem(this.dungeon.playerProgress, createItemInstance('med-gel-injector', 5))
+    tryAddItem(this.dungeon.playerProgress, createItemInstance('ablative-patch', 2))
+    tryAddItem(this.dungeon.playerProgress, createItemInstance('redline-ampoule', 1))
   }
 
-  private addPuddleDecal(x: number, z: number, radius: number, color: number, intensity = 0.22) {
+  private addPuddleDecal(x: number, z: number, radius: number, color: number, intensity = 0.12) {
     const glowTex = this.makeGlowTexture()
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x080610,
+      color: 0x3a4250,
       emissive: color,
       emissiveIntensity: intensity,
       emissiveMap: glowTex,
       transparent: true,
-      opacity: 0.75,
-      roughness: 0.1,
-      metalness: 0.9,
+      opacity: 0.45,
+      roughness: 0.18,
+      metalness: 0.75,
       depthWrite: false,
     })
     const puddle = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2, radius * 2), mat)
@@ -364,6 +476,7 @@ export class Game {
     if (idx >= 0) this.worldColliders.splice(idx, 1)
 
     this.buildPlazaFloor(concept)
+    applyNearestTextures(this.groundGroup)
   }
 
   private updateConceptPanel() {
@@ -447,12 +560,13 @@ export class Game {
   }
 
   private makeRain() {
-    const count = 1300
+    const count = 2200
+    const rainSpan = CITY_HALF * 2 + 16
     const positions = new Float32Array(count * 3)
     for (let i = 0; i < count; i++) {
-      positions[i * 3] = THREE.MathUtils.randFloatSpread(PLAZA_SIZE + 8)
-      positions[i * 3 + 1] = THREE.MathUtils.randFloat(0.2, 20)
-      positions[i * 3 + 2] = THREE.MathUtils.randFloatSpread(PLAZA_SIZE + 8)
+      positions[i * 3] = THREE.MathUtils.randFloatSpread(rainSpan)
+      positions[i * 3 + 1] = THREE.MathUtils.randFloat(0.2, ws(20))
+      positions[i * 3 + 2] = THREE.MathUtils.randFloatSpread(rainSpan)
     }
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
@@ -469,10 +583,40 @@ export class Game {
   // ── Speler ──────────────────────────────────────────────────────────────
 
   private buildIsoPlayer() {
+    // Default: Mixamo directional runner. ?player=voxel | rigged | hitem | legacy
+    const mode = new URLSearchParams(window.location.search).get('player') ?? 'runner'
+
+    if (mode === 'voxel') {
+      const rig = buildPlayerCharacter(NEON_CYAN, NEON_PINK, NEON_ORANGE)
+      this.player = rig.root
+      this.playerBody = rig.body
+      this.legL = rig.legL
+      this.legR = rig.legR
+      this.armL = rig.armL
+      this.armR = rig.armR
+      this.gun = rig.gun
+      this.gunHolder = rig.gunHolder
+      this.muzzle = rig.muzzle
+      this.muzzleLight = rig.muzzleLight
+      this.playerVisorMat = rig.visorMat
+      this.playerHasSkeleton = false
+      this.player.position.set(0, 0, ws(10))
+      this.player.visible = false
+      this.scene.add(this.player)
+      this.flickerMats.push({ mat: this.playerVisorMat, base: this.playerVisorMat.emissiveIntensity, t: Math.random() * 2 })
+      if (COMBAT_ENABLED) {
+        this.gunHolder.visible = true
+        this.gun.visible = true
+      }
+      return
+    }
+
     this.player = new THREE.Group()
     this.playerBody = new THREE.Group()
     this.legL = new THREE.Group()
     this.legR = new THREE.Group()
+    this.armL = new THREE.Group()
+    this.armR = new THREE.Group()
     this.gun = new THREE.Group()
     this.gunHolder = new THREE.Group()
     this.muzzle = new THREE.Object3D()
@@ -480,44 +624,77 @@ export class Game {
     this.playerVisorMat = new THREE.MeshStandardMaterial({ color: 0x00f6ff, emissive: 0x00f6ff, emissiveIntensity: 1 })
 
     this.player.add(this.playerBody)
-    this.player.position.set(0, 0, 10)
+    this.player.position.set(0, 0, ws(10))
     this.player.visible = false
     this.scene.add(this.player)
 
-    void this.loadHitemPlayerModel()
+    if (mode === 'rigged' || mode === 'hitem' || mode === 'legacy') {
+      void this.loadHitemPlayerModel()
+    } else {
+      void this.loadDirectionalRunnerModel()
+    }
+  }
+
+  private applyLoadedPlayerRig(rig: Awaited<ReturnType<typeof loadDirectionalRunner>>) {
+    if (this.player.parent) this.player.parent.remove(this.player)
+    this.player = rig.root
+    this.playerBody = rig.body
+    this.legL = rig.legL
+    this.legR = rig.legR
+    this.armL = rig.armL
+    this.armR = rig.armR
+    this.gun = rig.gun
+    this.gunHolder = rig.gunHolder
+    this.muzzle = rig.muzzle
+    this.muzzleLight = rig.muzzleLight
+    this.playerVisorMat = rig.visorMat
+    this.playerMixer = rig.mixer
+    this.playerIdleAction = rig.idleAction
+    this.playerWalkAction = rig.walkAction
+    this.playerRunAction = rig.runAction
+    this.playerFrontAction = rig.frontAction
+    this.playerBackAction = rig.backAction
+    this.playerLeftAction = rig.leftAction
+    this.playerRightAction = rig.rightAction
+    this.playerHasSkeleton = rig.hasSkeleton
+
+    this.player.position.set(0, 0, ws(10))
+    this.player.visible = this.playing
+    this.scene.add(this.player)
+    if (COMBAT_ENABLED) {
+      this.gunHolder.visible = true
+      this.gun.visible = true
+    }
+
+    if (this.playerVisorMat.emissiveIntensity > 0) {
+      this.flickerMats.push({
+        mat: this.playerVisorMat,
+        base: this.playerVisorMat.emissiveIntensity,
+        t: Math.random() * 2,
+      })
+    }
+  }
+
+  private async loadDirectionalRunnerModel() {
+    try {
+      const rig = await loadDirectionalRunner()
+      this.applyLoadedPlayerRig(rig)
+      console.info('[player] directional run clips ready (front/back/left/right)')
+    } catch (err) {
+      console.error('Failed to load directional runner — falling back to Hitem', err)
+      await this.loadHitemPlayerModel()
+    }
   }
 
   private async loadHitemPlayerModel() {
     try {
       const rig = await loadHitemPlayer()
-      this.player.remove(this.playerBody)
-      this.player = rig.root
-      this.playerBody = rig.body
-      this.legL = rig.legL
-      this.legR = rig.legR
-      this.gun = rig.gun
-      this.gunHolder = rig.gunHolder
-      this.muzzle = rig.muzzle
-      this.muzzleLight = rig.muzzleLight
-      this.playerVisorMat = rig.visorMat
-      this.playerMixer = rig.mixer
-      this.playerIdleAction = rig.idleAction
-      this.playerWalkAction = rig.walkAction
-      this.playerRunAction = rig.runAction
-      this.playerHasSkeleton = rig.hasSkeleton
-
-      this.player.position.set(0, 0, 10)
-      this.player.visible = this.playing
-      this.scene.add(this.player)
+      this.applyLoadedPlayerRig(rig)
 
       if (rig.mixer) {
         console.info('[player] animation clips ready — walk/idle will play when moving')
       } else if (rig.hasSkeleton) {
         console.info('[player] rigged model loaded (no animation clips yet — static pose + bob)')
-      }
-
-      if (this.playerVisorMat.emissiveIntensity > 0) {
-        this.flickerMats.push({ mat: this.playerVisorMat, base: this.playerVisorMat.emissiveIntensity, t: Math.random() * 2 })
       }
     } catch (err) {
       console.error('Failed to load Hitem3D player model', err)
@@ -723,7 +900,41 @@ export class Game {
   private bindEvents() {
     window.addEventListener('keydown', (e) => {
       if (!this.playing) return
-      if (e.code.startsWith('Digit')) {
+
+      if (this.inSewer) {
+        if (e.code === 'KeyI' || e.code === 'Tab') {
+          e.preventDefault()
+          this.dungeon.toggleInventory()
+          this.firing = false
+          return
+        }
+        if (e.code === 'KeyE') {
+          const result = this.dungeon.interact(this.player.position)
+          if (result === 'exit') this.exitSewer()
+          return
+        }
+        if (e.code === 'KeyR') {
+          this.dungeon.startReload()
+          return
+        }
+        if (e.code === 'Digit1') {
+          this.dungeon.useHotkey(1)
+          return
+        }
+        if (e.code === 'Digit2') {
+          this.dungeon.useHotkey(2)
+          return
+        }
+        if (e.code === 'Digit3') {
+          this.dungeon.useHotkey(3)
+          return
+        }
+        if (e.code === 'Escape') {
+          this.dungeon.closeInventory()
+          this.firing = false
+          return
+        }
+      } else if (e.code.startsWith('Digit')) {
         const concept = conceptByKey(e.code.replace('Digit', ''))
         if (concept) this.switchGroundConcept(concept)
       }
@@ -743,7 +954,13 @@ export class Game {
     })
     canvas.addEventListener('mousedown', (e) => {
       if (!this.playing) return
-      if (COMBAT_ENABLED && e.button === 0) this.firing = true
+      if (
+        COMBAT_ENABLED &&
+        e.button === 0 &&
+        (!this.inSewer || this.dungeon.acceptsInput())
+      ) {
+        this.firing = true
+      }
     })
     document.addEventListener('mouseup', (e) => {
       if (!this.playing || !COMBAT_ENABLED) return
@@ -786,8 +1003,7 @@ export class Game {
     this.camera.top = ISO_FRUSTUM / 2
     this.camera.bottom = -ISO_FRUSTUM / 2
     this.camera.updateProjectionMatrix()
-    this.renderer.setSize(w, h)
-    this.composer.setSize(w, h)
+    applyPixelResolution(this.renderer, this.composer, w, h, PIXEL_SCALE)
   }
 
   // ── Beweging & camera ───────────────────────────────────────────────────
@@ -799,15 +1015,22 @@ export class Game {
     }
 
     this.updateAimFromMouse()
+    if (this.inSewer && !this.dungeon.acceptsInput()) {
+      this.velocity.set(0, 0, 0)
+      this.firing = false
+      return
+    }
 
+    // Camera-relative WASD (isometric standard)
     const wish = new THREE.Vector3()
     if (this.keys.w) wish.add(ISO_FORWARD)
     if (this.keys.s) wish.sub(ISO_FORWARD)
     if (this.keys.d) wish.add(ISO_RIGHT)
     if (this.keys.a) wish.sub(ISO_RIGHT)
 
-    const maxSpeed = this.keys.sprint && this.keys.w ? SPRINT_SPEED : WALK_SPEED
     const hasInput = wish.lengthSq() > 0
+    // Sprint in any move direction (not only W) — Diablo / Hades style
+    const maxSpeed = this.keys.sprint && hasInput ? SPRINT_SPEED : WALK_SPEED
     if (hasInput) wish.normalize().multiplyScalar(maxSpeed)
 
     const lambda = hasInput ? ACCEL : DECEL
@@ -816,57 +1039,114 @@ export class Game {
     if (!hasInput && this.velocity.lengthSq() < 0.0004) this.velocity.set(0, 0, 0)
 
     this.player.position.addScaledVector(this.velocity, dt)
-    this.player.position.x = THREE.MathUtils.clamp(
-      this.player.position.x, -PLAYER_LIMIT_X, PLAYER_LIMIT_X
-    )
-    this.player.position.z = THREE.MathUtils.clamp(
-      this.player.position.z, -PLAYER_LIMIT_Z, PLAYER_LIMIT_Z
-    )
+    if (this.inSewer) {
+      const prev = this.player.position.clone().addScaledVector(this.velocity, -dt)
+      this.dungeon.constrainPlayer(prev, this.player.position)
+    } else {
+      this.player.position.x = THREE.MathUtils.clamp(
+        this.player.position.x, -PLAYER_LIMIT_X, PLAYER_LIMIT_X
+      )
+      this.player.position.z = THREE.MathUtils.clamp(
+        this.player.position.z, -PLAYER_LIMIT_Z, PLAYER_LIMIT_Z
+      )
+    }
 
+    this.sewerCooldown = Math.max(0, this.sewerCooldown - dt)
+    this.updateSewerProximity()
+
+    // Aim yaw always tracks mouse — body faces aim (twin-stick / shooter style)
     const dx = this.aimPoint.x - this.player.position.x
     const dz = this.aimPoint.z - this.player.position.z
     if (dx * dx + dz * dz > 0.04) {
       this.aimYaw = Math.atan2(dx, dz)
-      this.player.rotation.y = dampAngle(this.player.rotation.y, this.aimYaw, 18, dt)
     }
 
     const speed = this.velocity.length()
-    const speedRatio = speed / SPRINT_SPEED
-    const moving = speed > 0.12
+    const moving = speed > MOVE_FACE_THRESHOLD
+    const speedRatio = THREE.MathUtils.clamp(speed / SPRINT_SPEED, 0, 1)
 
+    // Face move direction while running so the front-run clip always matches.
+    // When idle / nearly still, ease back toward mouse aim for shooting.
+    if (moving) {
+      const moveYaw = Math.atan2(this.velocity.x, this.velocity.z)
+      this.faceYaw = dampAngle(this.faceYaw, moveYaw, FACE_TURN, dt)
+    } else {
+      this.faceYaw = dampAngle(this.faceYaw, this.aimYaw, FACE_TURN_IDLE, dt)
+    }
+    this.player.rotation.y = this.faceYaw
+
+    // Local velocity vs facing — with move-facing this is mostly +Z while running
+    const localVel = this.velocity.clone().applyAxisAngle(
+      new THREE.Vector3(0, 1, 0), -this.faceYaw
+    )
+    const forwardDot = localVel.z
+    const backpedaling = moving && forwardDot < -0.08
+    if (backpedaling) {
+      const cap = WALK_SPEED * 0.62
+      if (this.velocity.length() > cap) this.velocity.setLength(cap)
+    }
+
+    // Prefer front-run when mostly aligned; blend sides only for residual strafe
+    const locoWeights = locomotionWeightsFromLocalVelocity(localVel, moving)
     updatePlayerAnimations(
       {
         mixer: this.playerMixer,
         idleAction: this.playerIdleAction,
         walkAction: this.playerWalkAction,
         runAction: this.playerRunAction,
+        frontAction: this.playerFrontAction,
+        backAction: this.playerBackAction,
+        leftAction: this.playerLeftAction,
+        rightAction: this.playerRightAction,
       },
       dt,
       moving,
-      this.keys.sprint && this.keys.w,
+      this.keys.sprint && hasInput && !backpedaling,
+      speedRatio,
+      backpedaling,
+      'idle',
+      locoWeights,
     )
 
     if (this.playerMixer) {
-      // GLB clips drive locomotion — skip procedural leg swing
+      // GLB clips drive locomotion — keep procedural limbs still
+      this.legL.rotation.x = THREE.MathUtils.damp(this.legL.rotation.x, 0, 14, dt)
+      this.legR.rotation.x = THREE.MathUtils.damp(this.legR.rotation.x, 0, 14, dt)
+      this.armL.rotation.x = THREE.MathUtils.damp(this.armL.rotation.x, 0, 14, dt)
+      this.armR.rotation.x = THREE.MathUtils.damp(this.armR.rotation.x, 0, 14, dt)
+      this.playerBody.position.y = THREE.MathUtils.damp(this.playerBody.position.y, 0, 14, dt)
     } else if (moving) {
-      this.walkPhase += dt * (6 + speedRatio * 5)
-      const swing = Math.sin(this.walkPhase) * 0.42 * Math.min(speedRatio * 2, 1)
+      // Procedural walk: reverse swing when moving backward while facing mouse
+      const cadence = backpedaling ? 5.5 + speedRatio * 3.5 : 7.5 + speedRatio * 6.5
+      this.walkPhase += dt * cadence
+      const amp = (backpedaling ? 0.32 : 0.48) * Math.min(speedRatio * 1.8, 1)
+      const dir = backpedaling ? -1 : 1
+      const swing = Math.sin(this.walkPhase) * amp * dir
       this.legL.rotation.x = swing
       this.legR.rotation.x = -swing
-      this.playerBody.position.y = Math.abs(Math.sin(this.walkPhase * 2)) * 0.035 * Math.min(speedRatio * 2, 1)
+      // Keep gun arm steadier; free arm counters legs
+      this.armL.rotation.x = -swing * (COMBAT_ENABLED ? 0.25 : 0.55)
+      this.armR.rotation.x = swing * (COMBAT_ENABLED ? 0.12 : 0.55)
+      this.playerBody.position.y =
+        Math.abs(Math.sin(this.walkPhase * 2)) * (backpedaling ? 0.02 : 0.04) * Math.min(speedRatio * 1.6, 1)
     } else {
-      this.legL.rotation.x = THREE.MathUtils.damp(this.legL.rotation.x, 0, 12, dt)
-      this.legR.rotation.x = THREE.MathUtils.damp(this.legR.rotation.x, 0, 12, dt)
-      this.playerBody.position.y = THREE.MathUtils.damp(this.playerBody.position.y, 0, 12, dt)
+      this.legL.rotation.x = THREE.MathUtils.damp(this.legL.rotation.x, 0, 14, dt)
+      this.legR.rotation.x = THREE.MathUtils.damp(this.legR.rotation.x, 0, 14, dt)
+      this.armL.rotation.x = THREE.MathUtils.damp(this.armL.rotation.x, 0, 14, dt)
+      this.armR.rotation.x = THREE.MathUtils.damp(this.armR.rotation.x, 0, 14, dt)
+      this.playerBody.position.y = THREE.MathUtils.damp(this.playerBody.position.y, 0, 14, dt)
     }
 
-    const localVel = this.velocity.clone().applyAxisAngle(
-      new THREE.Vector3(0, 1, 0), -this.player.rotation.y
-    )
-    const targetLeanZ = THREE.MathUtils.clamp(-localVel.x * 0.035, -0.12, 0.12)
-    const targetLeanX = THREE.MathUtils.clamp(localVel.z * 0.028, -0.1, 0.1)
-    this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 10, dt)
-    this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, targetLeanX, 10, dt)
+    // Lean only for voxel / non-skeletal — Mixamo already has body motion
+    if (!this.playerHasSkeleton) {
+      const targetLeanZ = THREE.MathUtils.clamp(-localVel.x * 0.03, -0.1, 0.1)
+      const targetLeanX = THREE.MathUtils.clamp(localVel.z * 0.022, -0.08, 0.08)
+      this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 12, dt)
+      this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, targetLeanX, 12, dt)
+    } else {
+      this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, 0, 12, dt)
+      this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, 0, 12, dt)
+    }
 
     this.gunKick = Math.max(0, this.gunKick - dt * 6)
     this.gunHolder.rotation.x = THREE.MathUtils.damp(
@@ -877,6 +1157,91 @@ export class Game {
     )
     this.gun.rotation.x = -this.gunKick * 0.5
     this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 260)
+  }
+
+  private updateSewerProximity() {
+    if (!this.playing || this.inSewer) {
+      this.sewerPromptEl?.classList.add('hidden')
+      return
+    }
+    const dx = this.player.position.x - SEWER_ENTRANCE_X
+    const dz = this.player.position.z - SEWER_ENTRANCE_Z
+    const dist = Math.hypot(dx, dz)
+    const near = dist < SEWER_ENTER_RADIUS + 2.2
+    this.sewerPromptEl?.classList.toggle('hidden', !near)
+    if (dist < SEWER_ENTER_RADIUS && this.sewerCooldown <= 0) {
+      this.enterSewer()
+    }
+  }
+
+  private enterSewer() {
+    if (this.inSewer) return
+    this.inSewer = true
+    this.sewerCooldown = 1.2
+    this.velocity.set(0, 0, 0)
+    this.surfaceReturnPos.set(SEWER_ENTRANCE_X + 0.2, 0, SEWER_ENTRANCE_Z + 3.4)
+
+    const spawn = this.dungeon.enter()
+    this.player.position.copy(spawn)
+    this.faceYaw = this.dungeon.getSpawnFacing()
+    this.player.rotation.y = this.faceYaw
+    this.camFocus.copy(this.player.position)
+
+    for (const obj of this.surfaceObjects) {
+      if (obj === this.player) continue
+      obj.visible = false
+    }
+    for (const light of this.surfaceLights) light.visible = false
+    for (const enemy of this.enemies) enemy.root.visible = false
+
+    if (this.scene.background instanceof THREE.Color) this.savedBg.copy(this.scene.background)
+    this.scene.background = new THREE.Color(0x0a1210)
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.savedFogColor.copy(this.scene.fog.color)
+      this.savedFogDensity = this.scene.fog.density
+      this.scene.fog.color.set(0x0c1a14)
+      this.scene.fog.density = 0.022
+    }
+
+    document.body.classList.add('sewer-mode')
+    this.exitSewerBtn?.classList.add('hidden')
+    this.sewerPromptEl?.classList.add('hidden')
+    this.conceptPanelEl?.classList.add('hidden')
+    this.hintEl.textContent =
+      'Dungeon · WASD · Shift sprint · Muis mikken · LMB schiet · E loot/exit · I/Tab inventory · Esc sluit · 1-3 consumables · R reload · clear 4 rooms → boss → ladder'
+    this.hintEl.classList.remove('hidden')
+  }
+
+  private exitSewer() {
+    if (!this.inSewer) return
+    if (!this.dungeon.canExit()) return
+    this.inSewer = false
+    this.sewerCooldown = 1.5
+    this.velocity.set(0, 0, 0)
+    this.dungeon.exit()
+    this.player.position.copy(this.surfaceReturnPos)
+    this.faceYaw = 0
+    this.player.rotation.y = this.faceYaw
+    this.camFocus.copy(this.player.position)
+
+    for (const obj of this.surfaceObjects) obj.visible = true
+    for (const light of this.surfaceLights) light.visible = true
+    this.player.visible = true
+    for (const enemy of this.enemies) {
+      if (enemy.state === 'alive') enemy.root.visible = true
+    }
+
+    this.scene.background = this.savedBg.clone()
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.scene.fog.color.copy(this.savedFogColor)
+      this.scene.fog.density = this.savedFogDensity
+    }
+
+    document.body.classList.remove('sewer-mode')
+    this.exitSewerBtn?.classList.add('hidden')
+    this.conceptPanelEl?.classList.remove('hidden')
+    this.hintEl.innerHTML =
+      '<b>WASD</b> lopen · <b>Shift</b> sprint · <b>Muis</b> mikken · <b>LMB</b> schieten · hatch = dungeon'
   }
 
   private updateCamera(dt: number) {
@@ -913,7 +1278,32 @@ export class Game {
 
   private updateShooting(dt: number) {
     this.fireCooldown -= dt
-    if (this.firing && this.fireCooldown <= 0) {
+    if (this.inSewer) {
+      if (this.dungeon.acceptsInput() && this.firing && this.fireCooldown <= 0) {
+        const muzzlePos = this.getMuzzleWorldPosition()
+        const result = this.dungeon.tryFire(muzzlePos, this.aimPoint, this.faceYaw)
+        if (result.fired) {
+          this.fireCooldown = this.dungeon.weaponStats().fireInterval
+          this.gunKick = Math.min(this.gunKick + 0.55, 1)
+          this.muzzleLight.intensity = 22
+          for (const ray of result.rays) {
+            this.spawnTracer(result.muzzle, ray.end)
+            const hit = ray.hit
+            if (hit) {
+              this.spawnSparks(hit.hitPoint, 0xff5577)
+              this.dungeon.showHitNumber(
+                hit.hitPoint,
+                this.camera,
+                this.renderer.domElement,
+                hit.damage,
+                hit.isCrit,
+              )
+              this.flashHitmarker()
+            }
+          }
+        }
+      }
+    } else if (this.firing && this.fireCooldown <= 0 && this.canShootAtAim()) {
       this.fireCooldown = FIRE_INTERVAL
       this.shoot()
     }
@@ -952,6 +1342,19 @@ export class Game {
         this.sparks.splice(i, 1)
       }
     }
+  }
+
+  /** True when the mouse aim is within the front firing arc (not behind the body). */
+  private canShootAtAim(): boolean {
+    const dx = this.aimPoint.x - this.player.position.x
+    const dz = this.aimPoint.z - this.player.position.z
+    const lenSq = dx * dx + dz * dz
+    if (lenSq < 0.04) return false
+    const inv = 1 / Math.sqrt(lenSq)
+    const fx = Math.sin(this.faceYaw)
+    const fz = Math.cos(this.faceYaw)
+    const dot = fx * dx * inv + fz * dz * inv
+    return dot >= Math.cos(FIRE_ARC)
   }
 
   private getMuzzleWorldPosition(out = new THREE.Vector3()): THREE.Vector3 {
@@ -1150,19 +1553,21 @@ export class Game {
   // ── Sfeer-updates ───────────────────────────────────────────────────────
 
   private updateAtmosphere(dt: number, elapsed: number) {
-    // Regen valt en wrapt terug omhoog
-    const pos = this.rain.geometry.getAttribute('position') as THREE.BufferAttribute
-    const spread = (PLAZA_SIZE + 8) / 2
-    for (let i = 0; i < pos.count; i++) {
-      let y = pos.getY(i) - 19 * dt
-      if (y < 0) y += 20
-      pos.setY(i, y)
-      let x = pos.getX(i) + 2.4 * dt * Math.sin(i)
-      if (x > spread) x -= spread * 2
-      if (x < -spread) x += spread * 2
-      pos.setX(i, x)
+    // Regen alleen als zichtbaar (nacht/regen-modus)
+    if (this.rain.visible) {
+      const pos = this.rain.geometry.getAttribute('position') as THREE.BufferAttribute
+      const spread = CITY_HALF
+      for (let i = 0; i < pos.count; i++) {
+        let y = pos.getY(i) - 19 * dt
+        if (y < 0) y += 20
+        pos.setY(i, y)
+        let x = pos.getX(i) + 2.4 * dt * Math.sin(i)
+        if (x > spread) x -= spread * 2
+        if (x < -spread) x += spread * 2
+        pos.setX(i, x)
+      }
+      pos.needsUpdate = true
     }
-    pos.needsUpdate = true
 
     // Neon-flikkering
     for (const f of this.flickerMats) {
@@ -1186,9 +1591,18 @@ export class Game {
     const elapsed = this.clock.elapsedTime
     this.updatePlayer(dt)
     this.updateCamera(dt)
+    if (this.inSewer && this.dungeon.isActive) {
+      this.dungeon.update(
+        dt,
+        this.player.position,
+        this.aimPoint,
+        this.camera,
+        this.renderer.domElement,
+      )
+    }
     if (COMBAT_ENABLED) {
       this.updateShooting(dt)
-      this.updateEnemies(dt)
+      if (!this.inSewer) this.updateEnemies(dt)
     }
     this.updateAtmosphere(dt, elapsed)
     this.composer.render()

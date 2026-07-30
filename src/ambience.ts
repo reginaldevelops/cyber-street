@@ -1,4 +1,10 @@
 import * as THREE from 'three'
+import { ws } from './worldConfig.js'
+import { FOUNTAIN_X, FOUNTAIN_Z } from './plazaFountain.js'
+import { SUBWAY_X, SUBWAY_Z } from './plazaSubway.js'
+import { CITY_PITCH, CITY_ROAD, CITY_GRID_SPAN } from './cityGrid.js'
+import { PLAZA_EXCLUDE } from './worldConfig.js'
+import { overlapsConstructionSite } from './constructionSite.js'
 
 // ── Palette (matches game.ts neon constants) ────────────────────────────────
 export const NEON_CYAN = 0x00f6ff
@@ -8,7 +14,7 @@ export const CONTAINER_BLUE = 0x2a4858
 export const CONTAINER_ORANGE = 0xe85d04
 export const CONTAINER_RED = 0x8a3030
 
-export type DroidPose = 'idle' | 'typing' | 'walking'
+export type DroidPose = 'idle' | 'typing' | 'walking' | 'sitting'
 
 export interface DroidNPC {
   root: THREE.Group
@@ -604,6 +610,151 @@ export function buildWallMachinery(
 
 // ── 8 & 9. populateSceneAmbience — 18 prop placements across plaza ────────────
 
+function seatDroidOnBench(droid: DroidNPC, x: number, z: number, rotY: number) {
+  droid.root.position.set(x, -0.38, z)
+  droid.root.rotation.y = rotY
+  droid.pose = 'sitting'
+  droid.legL.rotation.x = -1.15
+  droid.legR.rotation.x = -1.15
+  droid.armL.rotation.x = -0.35
+  droid.armR.rotation.x = -0.2
+  droid.armL.rotation.z = 0.15
+  droid.armR.rotation.z = -0.1
+}
+
+/** NPCs hanging at the plaza fountain opposite the diner. */
+function spawnFountainLoiterers(scene: THREE.Scene, droids: DroidNPC[]) {
+  const fx = FOUNTAIN_X
+  const fz = FOUNTAIN_Z
+  const benchR = 3.85
+
+  const sitters = [
+    { a: 0.15, offset: -0.35 },
+    { a: Math.PI * 0.85, offset: 0.25 },
+    { a: Math.PI * 1.7, offset: -0.15 },
+  ]
+  for (const s of sitters) {
+    const bx = fx + Math.cos(s.a) * benchR
+    const bz = fz + Math.sin(s.a) * benchR
+    const rotY = Math.atan2(-(bx - fx), -(bz - fz))
+    const tx = Math.cos(rotY + Math.PI / 2) * s.offset
+    const tz = Math.sin(rotY + Math.PI / 2) * s.offset
+    const droid = buildDroidNPC(0, 0, 'idle')
+    seatDroidOnBench(droid, bx + tx, bz + tz, rotY)
+    droids.push(droid)
+    scene.add(droid.root)
+  }
+
+  const chat1 = buildDroidNPC(fx + 4.2, fz + 1.2, 'idle')
+  chat1.root.rotation.y = -0.8
+  droids.push(chat1)
+  scene.add(chat1.root)
+
+  const chat2 = buildDroidNPC(fx + 4.6, fz + 2.0, 'idle')
+  chat2.root.rotation.y = 2.4
+  chat2.armR.rotation.x = -0.6
+  droids.push(chat2)
+  scene.add(chat2.root)
+
+  const leaner = buildDroidNPC(fx - 4.4, fz - 1.5, 'idle')
+  leaner.root.rotation.y = 0.9
+  leaner.armL.rotation.x = -0.9
+  leaner.armL.rotation.z = 0.35
+  droids.push(leaner)
+  scene.add(leaner.root)
+
+  const walker = buildDroidNPC(fx + 4.5, fz, 'walking')
+  walker.root.userData.spawn = new THREE.Vector2(fx, fz)
+  walker.path = [
+    new THREE.Vector2(4.6, 0),
+    new THREE.Vector2(3.2, 3.4),
+    new THREE.Vector2(-1.5, 4.5),
+    new THREE.Vector2(-4.6, 1.0),
+    new THREE.Vector2(-3.4, -3.2),
+    new THREE.Vector2(1.2, -4.5),
+    new THREE.Vector2(4.6, 0),
+  ]
+  droids.push(walker)
+  scene.add(walker.root)
+}
+
+/** Street NPCs walking sidewalk loops around city blocks (not on roads). */
+function spawnCityStreetLife(scene: THREE.Scene, droids: DroidNPC[]) {
+  const sidewalkInset = CITY_ROAD / 2 + 1.0
+  const routes: { cx: number; cz: number; half: number }[] = []
+
+  for (let gx = -CITY_GRID_SPAN; gx < CITY_GRID_SPAN; gx++) {
+    for (let gz = -CITY_GRID_SPAN; gz < CITY_GRID_SPAN; gz++) {
+      const cx = (gx + 0.5) * CITY_PITCH
+      const cz = (gz + 0.5) * CITY_PITCH
+      if (Math.abs(cx) < PLAZA_EXCLUDE && Math.abs(cz) < PLAZA_EXCLUDE) continue
+      if (overlapsConstructionSite(cx - 6, cx + 6, cz - 6, cz + 6)) continue
+      // Sparse sampling — every other block-ish
+      if ((gx + gz * 3 + 10) % 5 !== 0) continue
+      const half = CITY_PITCH / 2 - sidewalkInset
+      routes.push({ cx, cz, half })
+    }
+  }
+
+  let placed = 0
+  for (const route of routes) {
+    if (placed >= 10) break
+    const walker = buildDroidNPC(route.cx + route.half, route.cz, 'walking')
+    walker.root.userData.spawn = new THREE.Vector2(route.cx, route.cz)
+    const h = route.half
+    walker.path = [
+      new THREE.Vector2(h, h * 0.6),
+      new THREE.Vector2(h * 0.6, -h),
+      new THREE.Vector2(-h, -h * 0.5),
+      new THREE.Vector2(-h * 0.5, h),
+      new THREE.Vector2(h, h * 0.6),
+    ]
+    droids.push(walker)
+    scene.add(walker.root)
+    placed++
+
+    // Idle loiterer near block front
+    if (placed < 10 && (placed % 2 === 0)) {
+      const idle = buildDroidNPC(route.cx + h * 0.3, route.cz + h * 0.85, 'idle')
+      idle.root.rotation.y = Math.PI + (placed * 0.7)
+      droids.push(idle)
+      scene.add(idle.root)
+      placed++
+    }
+  }
+}
+
+/** Commuters hanging at the metro station on the south plaza avenue. */
+function spawnSubwayLoiterers(scene: THREE.Scene, droids: DroidNPC[]) {
+  const sx = SUBWAY_X
+  const sz = SUBWAY_Z - 3.5
+  const face = Math.PI // face south toward the tracks
+
+  const idle1 = buildDroidNPC(sx - 2.8, sz - 0.4, 'idle')
+  idle1.root.rotation.y = face
+  droids.push(idle1)
+  scene.add(idle1.root)
+
+  const idle2 = buildDroidNPC(sx + 1.2, sz - 0.2, 'idle')
+  idle2.root.rotation.y = face + 0.4
+  idle2.armR.rotation.x = -0.55
+  droids.push(idle2)
+  scene.add(idle2.root)
+
+  // Walker along the platform / approach
+  const walker = buildDroidNPC(sx - 1, sz, 'walking')
+  walker.root.userData.spawn = new THREE.Vector2(sx, sz)
+  walker.path = [
+    new THREE.Vector2(-4, 0),
+    new THREE.Vector2(-1, 0.5),
+    new THREE.Vector2(3, 0),
+    new THREE.Vector2(1, -0.4),
+    new THREE.Vector2(-2, 0),
+  ]
+  droids.push(walker)
+  scene.add(walker.root)
+}
+
 export function populateSceneAmbience(
   scene: THREE.Scene,
   _flickerMats: { mat: THREE.MeshStandardMaterial; base: number; t: number }[],
@@ -611,14 +762,22 @@ export function populateSceneAmbience(
   ensureSharedMaterials()
   const state: AmbienceState = { droids: [], holoPanels: [], steamVents: [], critters: [] }
 
-  const marketDroid = buildDroidNPC(2, 3, 'idle')
+  const marketDroid = buildDroidNPC(ws(2), ws(3), 'idle')
   marketDroid.root.rotation.y = 0.8
   state.droids.push(marketDroid)
   scene.add(marketDroid.root)
 
-  const vent = buildSteamVent(6, 0.02, -6)
+  spawnFountainLoiterers(scene, state.droids)
+  spawnSubwayLoiterers(scene, state.droids)
+  spawnCityStreetLife(scene, state.droids)
+
+  const vent = buildSteamVent(ws(6), 0.02, -ws(6))
   state.steamVents.push(vent)
   scene.add(vent.grate, vent.steam)
+
+  const vent2 = buildSteamVent(-ws(18), 0.02, ws(14))
+  state.steamVents.push(vent2)
+  scene.add(vent2.grate, vent2.steam)
 
   return state
 }
@@ -638,7 +797,10 @@ export function updateAmbience(state: AmbienceState, dt: number, elapsed: number
 
   // Droid idle sway / walk cycle / patrol
   for (const d of state.droids) {
-    if (d.pose === 'idle') {
+    if (d.pose === 'sitting') {
+      d.armL.rotation.z = 0.15 + Math.sin(elapsed * 0.9 + d.walkPhase) * 0.03
+      d.armR.rotation.z = -0.1 - Math.sin(elapsed * 0.9 + d.walkPhase) * 0.03
+    } else if (d.pose === 'idle') {
       d.armL.rotation.z = Math.sin(elapsed * 1.1 + d.walkPhase) * 0.04
       d.armR.rotation.z = -Math.sin(elapsed * 1.1 + d.walkPhase) * 0.04
       d.root.position.y = Math.sin(elapsed * 2 + d.walkPhase) * 0.015
