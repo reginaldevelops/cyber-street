@@ -15,6 +15,14 @@ import { buildCitySurround } from './citySurround.js'
 import { loadHitemPlayer, updatePlayerAnimations } from './playerModel.js'
 import { buildPlayerCharacter } from './playerCharacter.js'
 import {
+  buildSewerTunnel,
+  clampSewerPosition,
+  SEWER_ENTRANCE_X,
+  SEWER_ENTRANCE_Z,
+  SEWER_ENTER_RADIUS,
+  SEWER_SPAWN,
+} from './sewer.js'
+import {
   applyNearestTextures,
   applyPixelResolution,
   createPixelQuantizePass,
@@ -174,6 +182,17 @@ export class Game {
   private playing = false
   private startScreenEl: HTMLElement | null
   private audioHintEl: HTMLElement | null
+  private sewerPromptEl: HTMLElement | null
+  private exitSewerBtn: HTMLButtonElement | null
+  private inSewer = false
+  private sewerCooldown = 0
+  private sewerTunnel: THREE.Group | null = null
+  private surfaceObjects: THREE.Object3D[] = []
+  private surfaceLights: THREE.Light[] = []
+  private surfaceReturnPos = new THREE.Vector3(SEWER_ENTRANCE_X, 0, SEWER_ENTRANCE_Z + 3.2)
+  private savedBg = new THREE.Color()
+  private savedFogColor = new THREE.Color()
+  private savedFogDensity = 0.0055
 
   private menuCamAngle = 0
 
@@ -185,10 +204,18 @@ export class Game {
     this.conceptPanelEl = document.getElementById('concept-panel')
     this.startScreenEl = document.getElementById('start-screen')
     this.audioHintEl = document.getElementById('start-audio-hint')
+    this.sewerPromptEl = document.getElementById('sewer-prompt')
+    this.exitSewerBtn = document.getElementById('exit-sewer-btn') as HTMLButtonElement | null
     if (!COMBAT_ENABLED) {
       this.crosshairEl?.classList.add('hidden')
       document.getElementById('scoreboard')?.classList.add('hidden')
     }
+
+    this.exitSewerBtn?.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      this.exitSewer()
+    })
 
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' })
     this.renderer.setPixelRatio(1)
@@ -207,7 +234,7 @@ export class Game {
       ISO_FRUSTUM / 2,
       -ISO_FRUSTUM / 2,
       0.1,
-      220,
+      600,
     )
 
     const pmrem = new THREE.PMREMGenerator(this.renderer)
@@ -343,6 +370,23 @@ export class Game {
 
     this.ambience = populateSceneAmbience(this.scene, this.flickerMats)
     applyNearestTextures(this.scene)
+
+    // Underground sewer pocket (hidden until entered)
+    this.sewerTunnel = buildSewerTunnel({
+      scene: this.scene,
+      flickerMats: this.flickerMats,
+      colliders: this.worldColliders,
+    })
+
+    // Snapshot surface objects/lights so we can hide them in the sewer
+    for (const child of [...this.scene.children]) {
+      if (child === this.sewerTunnel) continue
+      if ((child as THREE.Light).isLight) {
+        this.surfaceLights.push(child as THREE.Light)
+        continue
+      }
+      this.surfaceObjects.push(child)
+    }
   }
 
   private addPuddleDecal(x: number, z: number, radius: number, color: number, intensity = 0.12) {
@@ -881,12 +925,19 @@ export class Game {
     if (!hasInput && this.velocity.lengthSq() < 0.0004) this.velocity.set(0, 0, 0)
 
     this.player.position.addScaledVector(this.velocity, dt)
-    this.player.position.x = THREE.MathUtils.clamp(
-      this.player.position.x, -PLAYER_LIMIT_X, PLAYER_LIMIT_X
-    )
-    this.player.position.z = THREE.MathUtils.clamp(
-      this.player.position.z, -PLAYER_LIMIT_Z, PLAYER_LIMIT_Z
-    )
+    if (this.inSewer) {
+      clampSewerPosition(this.player.position)
+    } else {
+      this.player.position.x = THREE.MathUtils.clamp(
+        this.player.position.x, -PLAYER_LIMIT_X, PLAYER_LIMIT_X
+      )
+      this.player.position.z = THREE.MathUtils.clamp(
+        this.player.position.z, -PLAYER_LIMIT_Z, PLAYER_LIMIT_Z
+      )
+    }
+
+    this.sewerCooldown = Math.max(0, this.sewerCooldown - dt)
+    this.updateSewerProximity()
 
     // Aim yaw always tracks mouse (for shooting / look)
     const dx = this.aimPoint.x - this.player.position.x
@@ -964,6 +1015,82 @@ export class Game {
     )
     this.gun.rotation.x = -this.gunKick * 0.5
     this.muzzleLight.intensity = Math.max(0, this.muzzleLight.intensity - dt * 260)
+  }
+
+  private updateSewerProximity() {
+    if (!this.playing || this.inSewer) {
+      this.sewerPromptEl?.classList.add('hidden')
+      return
+    }
+    const dx = this.player.position.x - SEWER_ENTRANCE_X
+    const dz = this.player.position.z - SEWER_ENTRANCE_Z
+    const dist = Math.hypot(dx, dz)
+    const near = dist < SEWER_ENTER_RADIUS + 2.2
+    this.sewerPromptEl?.classList.toggle('hidden', !near)
+    if (dist < SEWER_ENTER_RADIUS && this.sewerCooldown <= 0) {
+      this.enterSewer()
+    }
+  }
+
+  private enterSewer() {
+    if (this.inSewer || !this.sewerTunnel) return
+    this.inSewer = true
+    this.sewerCooldown = 1.2
+    this.velocity.set(0, 0, 0)
+    this.surfaceReturnPos.set(SEWER_ENTRANCE_X + 0.2, 0, SEWER_ENTRANCE_Z + 3.4)
+    this.player.position.copy(SEWER_SPAWN)
+    this.faceYaw = Math.PI / 2
+    this.player.rotation.y = this.faceYaw
+    this.camFocus.copy(this.player.position)
+
+    for (const obj of this.surfaceObjects) obj.visible = false
+    for (const light of this.surfaceLights) light.visible = false
+    this.sewerTunnel.visible = true
+
+    if (this.scene.background instanceof THREE.Color) this.savedBg.copy(this.scene.background)
+    this.scene.background = new THREE.Color(0x0a1210)
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.savedFogColor.copy(this.scene.fog.color)
+      this.savedFogDensity = this.scene.fog.density
+      this.scene.fog.color.set(0x0c1a14)
+      this.scene.fog.density = 0.028
+    }
+
+    document.body.classList.add('sewer-mode')
+    this.exitSewerBtn?.classList.remove('hidden')
+    this.sewerPromptEl?.classList.add('hidden')
+    this.conceptPanelEl?.classList.add('hidden')
+    this.hintEl.textContent = 'Sewer tunnels · WASD lopen · Exit sewer via knop bovenin'
+    this.hintEl.classList.remove('hidden')
+  }
+
+  private exitSewer() {
+    if (!this.inSewer) return
+    this.inSewer = false
+    this.sewerCooldown = 1.5
+    this.velocity.set(0, 0, 0)
+    this.player.position.copy(this.surfaceReturnPos)
+    this.faceYaw = 0
+    this.player.rotation.y = this.faceYaw
+    this.camFocus.copy(this.player.position)
+
+    if (this.sewerTunnel) this.sewerTunnel.visible = false
+    for (const obj of this.surfaceObjects) obj.visible = true
+    for (const light of this.surfaceLights) light.visible = true
+    // Player must stay visible
+    this.player.visible = true
+
+    this.scene.background = this.savedBg.clone()
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.scene.fog.color.copy(this.savedFogColor)
+      this.scene.fog.density = this.savedFogDensity
+    }
+
+    document.body.classList.remove('sewer-mode')
+    this.exitSewerBtn?.classList.add('hidden')
+    this.conceptPanelEl?.classList.remove('hidden')
+    this.hintEl.innerHTML =
+      '<b>WASD</b> lopen · <b>Shift</b> sprinten · <b>Muis</b> kijken · <b>1–4</b> grate-variant'
   }
 
   private updateCamera(dt: number) {

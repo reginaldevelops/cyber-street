@@ -4,6 +4,8 @@ import { TILE_SIZE } from './worldConfig.js'
 /** 4×4 plaza tiles — Tesla-diner footprint. */
 export const DINER_TILES = 4
 export const DINER_SIZE = DINER_TILES * TILE_SIZE // 12.8
+export const DINER_X = -12
+export const DINER_Z = -15
 
 const TESLA_RED = 0xe31937
 const TESLA_SILVER = 0xc8ccd2
@@ -76,8 +78,8 @@ export function buildPlazaDiner(ctx: PlazaDinerContext): THREE.Group {
   root.name = 'plaza-diner'
 
   // Northwest plaza — axis-aligned with the plaza grid, facing south toward center
-  const lotX = -12
-  const lotZ = -15
+  const lotX = DINER_X
+  const lotZ = DINER_Z
   const lot = DINER_SIZE
   const half = lot / 2
 

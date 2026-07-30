@@ -6,6 +6,7 @@ import { buildConstructionSite } from './constructionSite.js'
 import { buildPlazaDiner } from './plazaDiner.js'
 import { buildPlazaFountain } from './plazaFountain.js'
 import { buildPlazaSubway } from './plazaSubway.js'
+import { buildSewerEntrance } from './sewer.js'
 import {
   PERIM_INNER,
   PERIM_OUTER,
@@ -716,6 +717,7 @@ function buildStreetRing(ctx: CitySurroundContext): THREE.Group {
 export function buildCitySurround(ctx: CitySurroundContext): CitySurroundStats {
   buildPlazaStreet({ scene: ctx.scene, flickerMats: ctx.flickerMats })
   buildPlazaDiner({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
+  buildSewerEntrance({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
   buildPlazaFountain({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
   buildPlazaSubway({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
   buildConstructionSite({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
