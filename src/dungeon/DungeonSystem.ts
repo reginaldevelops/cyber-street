@@ -38,9 +38,11 @@ import type {
 
 export interface DungeonFireResult {
   fired: boolean
-  results: ShotResult[]
   muzzle: THREE.Vector3
-  endPoints: THREE.Vector3[]
+  rays: {
+    end: THREE.Vector3
+    hit: ShotResult | null
+  }[]
 }
 
 interface LiveRoom {
@@ -78,7 +80,8 @@ export class DungeonSystem {
   private paused = false
   private bossCleared = false
   private runActive = false
-  private runScrapEarned = 0
+  private protectedScrap = 0
+  private seed = 0
   private lastPlayerPos = new THREE.Vector3()
   private readonly tmp = new THREE.Vector3()
 
@@ -91,10 +94,12 @@ export class DungeonSystem {
     this.hud.bindInventoryActions({
       equip: (i) => {
         equip(this.progress, i)
+        this.clampAmmoToMagazine()
         this.refreshHud()
       },
       scrap: (i) => {
         scrapItem(this.progress, i)
+        this.clampAmmoToMagazine()
         this.refreshHud()
       },
       use: (i) => {
@@ -117,18 +122,32 @@ export class DungeonSystem {
     return this.colliders
   }
 
+  canExit(): boolean {
+    return this.bossCleared
+  }
+
+  acceptsInput(): boolean {
+    return this.runActive && !this.paused && !this.dead && !this.hud.isInventoryOpen()
+  }
+
   getSpawnPosition(): THREE.Vector3 {
     const entrance = this.rooms.get(0)
     if (!entrance) return new THREE.Vector3(0, 0, 280)
     return new THREE.Vector3(entrance.data.worldX, 0, entrance.data.worldZ)
   }
 
+  getExitPosition(): THREE.Vector3 {
+    return this.rooms.get(0)?.built.exitAnchor?.clone() ?? this.getSpawnPosition()
+  }
+
   /** Start a fresh run. Returns spawn world position. */
   enter(seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0): THREE.Vector3 {
     this.exit(false)
     this.generated = generateDungeon(seed)
+    this.seed = this.generated.seed
     this.rng = mulberry32(this.generated.seed ^ 0x9e3779b9)
     this.progress.hp = this.progress.maxHp
+    this.protectedScrap = this.progress.scrap
     this.ammo = deriveWeaponStats(this.progress).magazine
     this.reloading = 0
     this.fireCooldown = 0
@@ -136,7 +155,6 @@ export class DungeonSystem {
     this.dead = false
     this.deathTimer = 0
     this.bossCleared = false
-    this.runScrapEarned = 0
     this.activeRoomId = null
     this.paused = false
 
@@ -145,21 +163,25 @@ export class DungeonSystem {
     this.runActive = true
     this.hud.show()
     this.refreshHud()
-    this.hud.showBanner(`SEWER RUN #${this.generated.seed % 100000}`, 2200)
-    this.hud.updateRoomProgress(0, 4)
+    this.hud.showBanner(`SEWER RUN #${this.seed}`, 2200)
+    this.hud.updateRoomProgress(0, 4, this.seed)
     return this.getSpawnPosition()
   }
 
   exit(hideHud = true): void {
     this.combat.clear()
+    this.combat.setBlockers([])
     this.clearLoot()
     for (const room of this.rooms.values()) {
       room.built.root.removeFromParent()
+      this.disposeObject(room.built.root)
     }
     this.rooms.clear()
     this.colliders = []
     while (this.root.children.length) {
-      this.root.remove(this.root.children[0]!)
+      const child = this.root.children[0]!
+      this.root.remove(child)
+      this.disposeObject(child)
     }
     this.root.visible = false
     this.runActive = false
@@ -221,9 +243,8 @@ export class DungeonSystem {
   ): DungeonFireResult {
     const empty: DungeonFireResult = {
       fired: false,
-      results: [],
       muzzle: muzzle.clone(),
-      endPoints: [],
+      rays: [],
     }
     if (!this.runActive || this.dead || this.paused) return empty
     if (this.reloading > 0 || this.fireCooldown > 0) return empty
@@ -248,8 +269,7 @@ export class DungeonSystem {
     this.fireCooldown = w.fireInterval
     if (this.ammo <= 0) this.startReload()
 
-    const results: ShotResult[] = []
-    const endPoints: THREE.Vector3[] = []
+    const rays: DungeonFireResult['rays'] = []
     const baseDir = new THREE.Vector3(dx, aimPoint.y - muzzle.y, dz).normalize()
 
     for (let ray = 0; ray < w.raysPerShot; ray++) {
@@ -269,16 +289,18 @@ export class DungeonSystem {
         isCrit,
       )
       if (hit) {
-        results.push(hit)
-        endPoints.push(hit.hitPoint.clone())
+        rays.push({ end: hit.hitPoint.clone(), hit })
         this.onEnemyShot(hit, w)
       } else {
-        endPoints.push(muzzle.clone().addScaledVector(dir, w.range * 0.7))
+        rays.push({
+          end: muzzle.clone().addScaledVector(dir, w.range * 0.7),
+          hit: null,
+        })
       }
     }
 
     this.refreshHud()
-    return { fired: true, results, muzzle: muzzle.clone(), endPoints }
+    return { fired: true, muzzle: muzzle.clone(), rays }
   }
 
   update(
@@ -337,6 +359,7 @@ export class DungeonSystem {
     if (!this.runActive) return
     const radius = 0.45
     for (const mesh of this.colliders) {
+      if (mesh.userData.isDoorSlab && !mesh.visible) continue
       if (!mesh.geometry) continue
       mesh.updateWorldMatrix(true, false)
       const box = new THREE.Box3().setFromObject(mesh)
@@ -430,6 +453,9 @@ export class DungeonSystem {
       entrance.data.state = 'cleared'
       this.setDoorsLocked(entrance, false)
     }
+
+    this.updateBossGate()
+    this.combat.setBlockers(this.colliders)
   }
 
   private updateRoomPresence(playerPos: THREE.Vector3): void {
@@ -508,14 +534,16 @@ export class DungeonSystem {
     this.setDoorsLocked(room, false)
     this.combat.clear()
     this.hud.showBanner('ROOM CLEARED', 1200)
-    this.hud.updateRoomProgress(this.clearedMainCount(), 4)
 
     if (room.data.role === 'boss') {
       this.bossCleared = true
       this.hud.hideBossBar()
       this.hud.showBanner('SEWER PURGED — FIND THE LADDER', 3200)
       // Boss loot already awarded on kill via onEnemyShot
+    } else if (room.data.role === 'main') {
+      this.updateBossGate()
     }
+    this.hud.updateRoomProgress(this.clearedMainCount(), 4, this.seed)
   }
 
   private clearedMainCount(): number {
@@ -540,6 +568,12 @@ export class DungeonSystem {
     }
   }
 
+  private updateBossGate(): void {
+    const boss = [...this.rooms.values()].find((room) => room.data.role === 'boss')
+    if (!boss || boss.data.state !== 'dormant') return
+    this.setDoorsLocked(boss, this.clearedMainCount() < 4)
+  }
+
   private onEnemyShot(hit: ShotResult, _weapon: WeaponStats): void {
     const kind: 'crit' | 'enemy' = hit.isCrit ? 'crit' : 'enemy'
     // Damage numbers need camera — deferred via banner if missing; Game can also show
@@ -549,7 +583,6 @@ export class DungeonSystem {
     if (!hit.killed) return
 
     const awards = awardMobProgress(this.progress, hit.kind, this.rng)
-    this.runScrapEarned += awards.scrap
     if (awards.levelUp.levelsGained > 0) {
       this.hud.showBanner(`LEVEL UP — LV ${awards.levelUp.level}`, 2000)
       this.ammo = deriveWeaponStats(this.progress).magazine
@@ -560,9 +593,6 @@ export class DungeonSystem {
       this.spawnLoot(hit.hitPoint, item)
     }
 
-    if (hit.kind === 'sump-king') {
-      this.bossCleared = true
-    }
   }
 
   private spawnLoot(at: THREE.Vector3, item: ItemInstance): void {
@@ -600,6 +630,7 @@ export class DungeonSystem {
   private clearLoot(): void {
     for (const l of this.loot) {
       l.root.removeFromParent()
+      this.disposeObject(l.root)
     }
     this.loot = []
   }
@@ -607,7 +638,7 @@ export class DungeonSystem {
   private updateLootPrompt(playerPos: THREE.Vector3): void {
     this.lastPlayerPos.copy(playerPos)
     let best: WorldLoot | null = null
-    let bestD: number = LOOT_WORLD_CONFIG.pickupDistance
+    let bestD: number = LOOT_WORLD_CONFIG.labelDistance
     for (const l of this.loot) {
       const d = playerPos.distanceTo(l.root.position)
       if (d < bestD) {
@@ -615,11 +646,23 @@ export class DungeonSystem {
         best = l
       }
     }
-    if (best && bestD <= LOOT_WORLD_CONFIG.labelDistance) {
+    const lockedBoss = [...this.rooms.values()].find(
+      (room) => room.data.role === 'boss' && room.data.state === 'dormant',
+    )
+    const nearLockedBoss =
+      this.clearedMainCount() < 4 &&
+      lockedBoss !== undefined &&
+      Math.hypot(
+        playerPos.x - lockedBoss.data.worldX,
+        playerPos.z - lockedBoss.data.worldZ,
+      ) < 14
+    if (nearLockedBoss) {
+      this.hud.setPickupPrompt('CLEAR 4 MAIN ROOMS TO OPEN THE SUMP')
+    } else if (best && bestD <= LOOT_WORLD_CONFIG.labelDistance) {
       this.hud.setPickupPrompt(`E — ${best.label}`)
     } else if (this.bossCleared) {
-      const spawn = this.getSpawnPosition()
-      if (playerPos.distanceTo(spawn) < 4) {
+      const exit = this.getExitPosition()
+      if (playerPos.distanceTo(exit) < 4) {
         this.hud.setPickupPrompt('E — EXIT LADDER')
       } else {
         this.hud.setPickupPrompt(null)
@@ -635,8 +678,9 @@ export class DungeonSystem {
 
   /** Call from game with player position for E key. */
   interact(playerPos: THREE.Vector3): 'pickup' | 'exit' | null {
+    if (!this.acceptsInput()) return null
     this.lastPlayerPos.copy(playerPos)
-    if (this.bossCleared && playerPos.distanceTo(this.getSpawnPosition()) < 4) {
+    if (this.canExit() && playerPos.distanceTo(this.getExitPosition()) < 4) {
       return 'exit'
     }
     let best: WorldLoot | null = null
@@ -654,6 +698,7 @@ export class DungeonSystem {
       return 'pickup'
     }
     best.root.removeFromParent()
+    this.disposeObject(best.root)
     this.loot = this.loot.filter((x) => x !== best)
     this.hud.showBanner(`LOOT + ${ITEM_CATALOG[best.item.itemId].name}`, 1000)
     this.refreshHud()
@@ -676,8 +721,10 @@ export class DungeonSystem {
     if (this.progress.hp <= 0) {
       this.dead = true
       this.deathTimer = DEATH_CONFIG.sequenceDuration
-      const loss = Math.floor(this.runScrapEarned * DEATH_CONFIG.currentRunScrapLoss)
+      const runEarnings = Math.max(0, this.progress.scrap - this.protectedScrap)
+      const loss = Math.floor(runEarnings * DEATH_CONFIG.currentRunScrapLoss)
       this.progress.scrap = Math.max(0, this.progress.scrap - loss)
+      this.protectedScrap = this.progress.scrap
       this.hud.showBanner(loss > 0 ? `DOWNED — LOST ${loss} SCRAP` : 'DOWNED', 1800)
       this.combat.clear()
     }
@@ -714,7 +761,24 @@ export class DungeonSystem {
       magazine: weapon.magazine,
       totalArmor: armor.total,
     })
-    this.hud.updateRoomProgress(this.clearedMainCount(), 4)
+    this.hud.updateRoomProgress(this.clearedMainCount(), 4, this.seed)
+  }
+
+  private clampAmmoToMagazine(): void {
+    this.ammo = Math.min(this.ammo, deriveWeaponStats(this.progress).magazine)
+  }
+
+  private disposeObject(object: THREE.Object3D): void {
+    const geometries = new Set<THREE.BufferGeometry>()
+    const materials = new Set<THREE.Material>()
+    object.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return
+      geometries.add(child.geometry)
+      const childMaterials = Array.isArray(child.material) ? child.material : [child.material]
+      childMaterials.forEach((material) => materials.add(material))
+    })
+    geometries.forEach((geometry) => geometry.dispose())
+    materials.forEach((material) => material.dispose())
   }
 
   /** Expose damage numbers for player shots from Game. */

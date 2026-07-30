@@ -15,6 +15,8 @@ export interface BuiltRoom {
   props: THREE.Object3D[]
   /** Door slabs start hidden. Encounter code can show them when a room locks. */
   doorSlabs: Partial<Record<Direction, THREE.Mesh>>
+  /** World-space ladder / exit interaction point (entrance only). */
+  exitAnchor: THREE.Vector3 | null
 }
 
 interface RoomMaterials {
@@ -222,6 +224,8 @@ function addWall(
   slab.userData.isDoorSlab = true
   ctx.root.add(slab)
   doorSlabs[dir] = slab
+  // Collision only while visible — DungeonSystem filters by visibility
+  ctx.colliders.push(slab)
 }
 
 function buildAccessJunction(ctx: BuildContext) {
@@ -253,6 +257,7 @@ function buildAccessJunction(ctx: BuildContext) {
     ladder.add(box(0.82, 0.06, 0.08, ctx.mats.metal, 0, 0.22 + i * 0.34, 0))
   }
   addProp(ctx, ladder)
+  ctx.root.userData.exitAnchorLocal = new THREE.Vector3(-6.8, 0, -7.65)
 
   for (const [x, z] of [
     [-7.2, -7.2],
@@ -498,7 +503,13 @@ export function buildRoomMesh(
       break
   }
 
-  return { root, colliders, spawnPoints, floorY: 0, props, doorSlabs }
+  let exitAnchor: THREE.Vector3 | null = null
+  const localExit = root.userData.exitAnchorLocal as THREE.Vector3 | undefined
+  if (localExit) {
+    exitAnchor = new THREE.Vector3(worldX + localExit.x, 0, worldZ + localExit.z)
+  }
+
+  return { root, colliders, spawnPoints, floorY: 0, props, doorSlabs, exitAnchor }
 }
 
 /**

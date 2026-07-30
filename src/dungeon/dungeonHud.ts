@@ -237,8 +237,9 @@ export class DungeonHud {
     }
   }
 
-  updateRoomProgress(clearedMain: number, totalMain: number): void {
-    this.roomText.textContent = `${whole(clearedMain)} / ${whole(totalMain)}`
+  updateRoomProgress(clearedMain: number, totalMain: number, seed?: number): void {
+    const seedLabel = seed === undefined ? '' : ` · SEED ${Math.max(0, Math.floor(seed))}`
+    this.roomText.textContent = `${whole(clearedMain)} / ${whole(totalMain)}${seedLabel}`
   }
 
   showBossBar(name: string, hp: number, maxHp: number): void {

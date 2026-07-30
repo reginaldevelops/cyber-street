@@ -228,6 +228,7 @@ export class Game {
     this.exitSewerBtn?.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
+      if (this.inSewer && !this.dungeon.canExit()) return
       this.exitSewer()
     })
 
@@ -903,6 +904,7 @@ export class Game {
         if (e.code === 'KeyI' || e.code === 'Tab') {
           e.preventDefault()
           this.dungeon.toggleInventory()
+          this.firing = false
           return
         }
         if (e.code === 'KeyE') {
@@ -928,6 +930,7 @@ export class Game {
         }
         if (e.code === 'Escape') {
           this.dungeon.closeInventory()
+          this.firing = false
           return
         }
       } else if (e.code.startsWith('Digit')) {
@@ -950,7 +953,13 @@ export class Game {
     })
     canvas.addEventListener('mousedown', (e) => {
       if (!this.playing) return
-      if (COMBAT_ENABLED && e.button === 0) this.firing = true
+      if (
+        COMBAT_ENABLED &&
+        e.button === 0 &&
+        (!this.inSewer || this.dungeon.acceptsInput())
+      ) {
+        this.firing = true
+      }
     })
     document.addEventListener('mouseup', (e) => {
       if (!this.playing || !COMBAT_ENABLED) return
@@ -1005,6 +1014,11 @@ export class Game {
     }
 
     this.updateAimFromMouse()
+    if (this.inSewer && !this.dungeon.acceptsInput()) {
+      this.velocity.set(0, 0, 0)
+      this.firing = false
+      return
+    }
 
     // Camera-relative WASD (isometric standard)
     const wish = new THREE.Vector3()
@@ -1189,16 +1203,17 @@ export class Game {
     }
 
     document.body.classList.add('sewer-mode')
-    this.exitSewerBtn?.classList.remove('hidden')
+    this.exitSewerBtn?.classList.add('hidden')
     this.sewerPromptEl?.classList.add('hidden')
     this.conceptPanelEl?.classList.add('hidden')
     this.hintEl.textContent =
-      'Dungeon · WASD · Muis mikken · LMB schiet · E loot/exit · I inventory · 1-3 consumables · R reload'
+      'Dungeon · WASD · Shift sprint · Muis mikken · LMB schiet · E loot/exit · I/Tab inventory · Esc sluit · 1-3 consumables · R reload · clear 4 rooms → boss → ladder'
     this.hintEl.classList.remove('hidden')
   }
 
   private exitSewer() {
     if (!this.inSewer) return
+    if (!this.dungeon.canExit()) return
     this.inSewer = false
     this.sewerCooldown = 1.5
     this.velocity.set(0, 0, 0)
@@ -1263,16 +1278,16 @@ export class Game {
   private updateShooting(dt: number) {
     this.fireCooldown -= dt
     if (this.inSewer) {
-      if (this.firing && this.fireCooldown <= 0) {
+      if (this.dungeon.acceptsInput() && this.firing && this.fireCooldown <= 0) {
         const muzzlePos = this.getMuzzleWorldPosition()
         const result = this.dungeon.tryFire(muzzlePos, this.aimPoint, this.faceYaw)
         if (result.fired) {
           this.fireCooldown = this.dungeon.weaponStats().fireInterval
           this.gunKick = Math.min(this.gunKick + 0.55, 1)
           this.muzzleLight.intensity = 22
-          for (let i = 0; i < result.endPoints.length; i++) {
-            this.spawnTracer(result.muzzle, result.endPoints[i]!)
-            const hit = result.results[i]
+          for (const ray of result.rays) {
+            this.spawnTracer(result.muzzle, ray.end)
+            const hit = ray.hit
             if (hit) {
               this.spawnSparks(hit.hitPoint, 0xff5577)
               this.dungeon.showHitNumber(

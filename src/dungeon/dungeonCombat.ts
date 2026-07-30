@@ -234,6 +234,7 @@ export class DungeonCombat {
   private fields: AreaField[] = []
   private readonly hitOwners = new Map<THREE.Mesh, Enemy>()
   private readonly raycaster = new THREE.Raycaster()
+  private blockers: THREE.Mesh[] = []
   private nextEnemyId = 1
   private nextBurstId = 1
   private playerInvulnerability = 0
@@ -318,14 +319,16 @@ export class DungeonCombat {
     if (range <= 0 || rayDir.lengthSq() <= EPSILON) return null
     const hitMeshes = this.getHitMeshes()
     if (hitMeshes.length === 0) return null
+    const blockers = this.blockers.filter((mesh) => mesh.geometry && this.isVisible(mesh))
 
     this.root.updateWorldMatrix(true, true)
     this.raycaster.set(rayOrigin, rayDir.clone().normalize())
     this.raycaster.near = 0
     this.raycaster.far = range
-    const hit = this.raycaster.intersectObjects(hitMeshes, false)[0]
+    const hit = this.raycaster.intersectObjects([...hitMeshes, ...blockers], false)[0]
     if (!hit) return null
     const enemy = this.hitOwners.get(hit.object as THREE.Mesh)
+    if (!enemy) return null
     if (!enemy?.alive) return null
 
     let armor = enemy.stats.armor
@@ -359,6 +362,10 @@ export class DungeonCombat {
 
   getHitMeshes(): THREE.Mesh[] {
     return this.enemies.flatMap((enemy) => (enemy.alive ? enemy.hitMeshes : []))
+  }
+
+  setBlockers(meshes: THREE.Mesh[]): void {
+    this.blockers = meshes
   }
 
   clear(): void {
