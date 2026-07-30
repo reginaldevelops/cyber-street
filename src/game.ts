@@ -1182,7 +1182,7 @@ export class Game {
 
     const spawn = this.dungeon.enter()
     this.player.position.copy(spawn)
-    this.faceYaw = 0
+    this.faceYaw = this.dungeon.getSpawnFacing()
     this.player.rotation.y = this.faceYaw
     this.camFocus.copy(this.player.position)
 

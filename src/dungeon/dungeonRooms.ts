@@ -5,7 +5,7 @@ export type { Direction, RoomType } from './dungeonTypes.js'
 
 export const CELL = 28
 export const WALL_HEIGHT = 3.4
-export const DOOR_WIDTH = 3
+export const DOOR_WIDTH = 4.2
 
 export interface BuiltRoom {
   root: THREE.Group
@@ -211,7 +211,9 @@ function addWall(
     ? box(DOOR_WIDTH, lintelHeight, WALL_THICKNESS, material, 0, DOOR_HEIGHT + lintelHeight / 2, wallZ)
     : box(WALL_THICKNESS, lintelHeight, DOOR_WIDTH, material, wallX, DOOR_HEIGHT + lintelHeight / 2, 0)
   lintel.name = `door-lintel-${dir}`
-  addCollider(ctx, lintel)
+  // Visual only — XZ foot-collision would seal the doorway shut.
+  lintel.userData.noCollision = true
+  ctx.root.add(lintel)
   addDoorFrame(ctx.root, dir, wallX, wallZ, ctx.mats.rust)
 
   const slabMaterial = standardMaterial(0x202b2d, 0.36, 0.82)

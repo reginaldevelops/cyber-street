@@ -163,9 +163,22 @@ export class DungeonSystem {
     this.runActive = true
     this.hud.show()
     this.refreshHud()
-    this.hud.showBanner(`SEWER RUN #${this.seed}`, 2200)
+    this.hud.showBanner('WALK THROUGH OPEN DOORS — MOBS GUARD EACH ROOM', 2800)
     this.hud.updateRoomProgress(0, 4, this.seed)
     return this.getSpawnPosition()
+  }
+
+  /** Yaw toward the first connected room so the player faces an exit. */
+  getSpawnFacing(): number {
+    const entrance = this.rooms.get(0)
+    if (!entrance) return 0
+    const dirs = Object.keys(entrance.data.neighbors) as Direction[]
+    if (dirs.length === 0) return 0
+    const dir = dirs[0]!
+    if (dir === 'N') return Math.PI
+    if (dir === 'S') return 0
+    if (dir === 'E') return Math.PI / 2
+    return -Math.PI / 2
   }
 
   exit(hideHud = true): void {
@@ -354,23 +367,26 @@ export class DungeonSystem {
     void aimPoint
   }
 
-  /** Soft AABB clamp against dungeon colliders (XZ only). */
+  /** Soft AABB clamp against dungeon colliders (XZ foot-collision). */
   constrainPlayer(prev: THREE.Vector3, next: THREE.Vector3): void {
     if (!this.runActive) return
     const radius = 0.45
+    const playerMinY = 0.15
+    const playerMaxY = 1.7
     for (const mesh of this.colliders) {
       if (mesh.userData.isDoorSlab && !mesh.visible) continue
+      if (mesh.userData.noCollision) continue
       if (!mesh.geometry) continue
       mesh.updateWorldMatrix(true, false)
       const box = new THREE.Box3().setFromObject(mesh)
       if (box.isEmpty()) continue
+      // Skip overhead geometry (lintels, hanging lamps) — don't seal doorways
+      if (box.min.y > playerMaxY || box.max.y < playerMinY) continue
       // Expand for player radius
       box.min.x -= radius
       box.min.z -= radius
       box.max.x += radius
       box.max.z += radius
-      box.min.y = -1
-      box.max.y = 4
       if (
         next.x >= box.min.x &&
         next.x <= box.max.x &&
@@ -468,7 +484,8 @@ export class DungeonSystem {
         nearest = room
       }
     }
-    if (!nearest || best > 12) return
+    // Rooms sit on a 28-unit grid; activate once the player is inside / on the bridge
+    if (!nearest || best > 16) return
 
     if (this.activeRoomId !== nearest.data.id) {
       // Leaving active uncleared room keeps it active until cleared
