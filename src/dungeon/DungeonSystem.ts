@@ -484,8 +484,7 @@ export class DungeonSystem {
         nearest = room
       }
     }
-    // Rooms sit on a 28-unit grid; activate once the player is inside / on the bridge
-    if (!nearest || best > 16) return
+    if (!nearest || best > 18) return
 
     if (this.activeRoomId !== nearest.data.id) {
       // Leaving active uncleared room keeps it active until cleared
@@ -500,6 +499,9 @@ export class DungeonSystem {
     }
 
     if (nearest.data.state === 'dormant' && nearest.encounterKinds.length > 0) {
+      // Only arm the encounter once the player is fully inside the floor
+      if (!this.isInsideRoom(nearest, playerPos)) return
+
       // Boss gate: need 4 main rooms cleared
       if (nearest.data.role === 'boss' && this.clearedMainCount() < 4) {
         this.hud.setPickupPrompt('CLEAR 4 MAIN ROOMS TO OPEN THE SUMP')
@@ -509,10 +511,26 @@ export class DungeonSystem {
     }
   }
 
+  /** True when the player is past the doorway, on the room floor (not still on the bridge). */
+  private isInsideRoom(room: LiveRoom, playerPos: THREE.Vector3): boolean {
+    const width = Number(room.built.root.userData.roomWidth ?? 20)
+    const depth = Number(room.built.root.userData.roomDepth ?? 20)
+    // Inset past the wall/door line so approaching on the bridge never triggers
+    const inset = 1.75
+    const halfW = width * 0.5 - inset
+    const halfD = depth * 0.5 - inset
+    const dx = Math.abs(playerPos.x - room.data.worldX)
+    const dz = Math.abs(playerPos.z - room.data.worldZ)
+    return dx <= halfW && dz <= halfD
+  }
+
   private activateRoom(room: LiveRoom, playerPos: THREE.Vector3): void {
     room.data.state = 'active'
-    this.setDoorsLocked(room, true)
-    this.hud.showBanner(room.data.role === 'boss' ? 'THE SUMP KING' : 'ROOM LOCKED', 1400)
+    // Lock doors after a short beat so the player is fully inside first
+    this.hud.showBanner(room.data.role === 'boss' ? 'THE SUMP KING' : 'HOSTILES INCOMING', 1400)
+    window.setTimeout(() => {
+      if (room.data.state === 'active') this.setDoorsLocked(room, true)
+    }, 550)
 
     const center = new THREE.Vector3(room.data.worldX, 0, room.data.worldZ)
     const scaleLevel = Math.min(this.progress.level, 5)
