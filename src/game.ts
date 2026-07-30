@@ -60,6 +60,10 @@ const ISO_RIGHT = new THREE.Vector3(1, 0, -1).normalize()
 const FIRE_INTERVAL = 0.115
 const GUN_RANGE = 90
 const AIM_ASSIST_ANGLE = 0.055
+/** Max angle from body forward to aim (rad). ~100° — blocks shooting behind your back. */
+const FIRE_ARC = (100 * Math.PI) / 180
+/** Mixamo bind faces -Z; add π at the player root (not on the armature) so look matches yaw. */
+const MIXAMO_YAW_OFFSET = Math.PI
 
 const PLAYER_LIMIT_X = CITY_HALF - PLAYER_BOUNDARY_INSET
 const PLAYER_LIMIT_Z = CITY_HALF - PLAYER_BOUNDARY_INSET
@@ -1017,7 +1021,9 @@ export class Game {
     } else {
       this.faceYaw = dampAngle(this.faceYaw, this.aimYaw, FACE_TURN_IDLE, dt)
     }
-    this.player.rotation.y = this.faceYaw
+    // Logical faceYaw aims +Z; Mixamo mesh faces -Z — offset only on root yaw
+    const yawOffset = this.playerHasSkeleton ? MIXAMO_YAW_OFFSET : 0
+    this.player.rotation.y = this.faceYaw + yawOffset
 
     // Local velocity vs facing — with move-facing this is mostly +Z while running
     const localVel = this.velocity.clone().applyAxisAngle(
@@ -1213,7 +1219,7 @@ export class Game {
 
   private updateShooting(dt: number) {
     this.fireCooldown -= dt
-    if (this.firing && this.fireCooldown <= 0) {
+    if (this.firing && this.fireCooldown <= 0 && this.canShootAtAim()) {
       this.fireCooldown = FIRE_INTERVAL
       this.shoot()
     }
@@ -1252,6 +1258,19 @@ export class Game {
         this.sparks.splice(i, 1)
       }
     }
+  }
+
+  /** True when the mouse aim is within the front firing arc (not behind the body). */
+  private canShootAtAim(): boolean {
+    const dx = this.aimPoint.x - this.player.position.x
+    const dz = this.aimPoint.z - this.player.position.z
+    const lenSq = dx * dx + dz * dz
+    if (lenSq < 0.04) return false
+    const inv = 1 / Math.sqrt(lenSq)
+    const fx = Math.sin(this.faceYaw)
+    const fz = Math.cos(this.faceYaw)
+    const dot = fx * dx * inv + fz * dz * inv
+    return dot >= Math.cos(FIRE_ARC)
   }
 
   private getMuzzleWorldPosition(out = new THREE.Vector3()): THREE.Vector3 {

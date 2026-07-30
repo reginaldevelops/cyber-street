@@ -387,9 +387,6 @@ export async function loadDirectionalRunner(): Promise<PlayerRig> {
     right: right.animations.map((c) => classifyTravel(c)),
   })
 
-  // Mixamo bind faces -Z; rotate so mesh forward = Three.js +Z (move / face yaw).
-  scene.rotation.y = Math.PI
-
   // Pose with first frame so bone bbox is meaningful before fit
   if (frontClip) {
     const tmpMixer = new THREE.AnimationMixer(scene)
