@@ -288,21 +288,46 @@ export function buildPlazaStreet(ctx: PlazaStreetContext): THREE.Group {
   const crossSpan = STREET_W - 0.6
   const crossDepth = ws(3.6)
 
-  // West (linker): 2 zebrapaden op noord- en zuidarm
+  // West / east arms: zebras for N–S pedestrian crossings
   addZebraCrossing(root, -STREET_MID, -ws(14), crossSpan, crossDepth, Math.PI / 2)
   addStopBar(root, -STREET_MID, -ws(16.2), crossSpan, true)
   addZebraCrossing(root, -STREET_MID, ws(14), crossSpan, crossDepth, Math.PI / 2)
   addStopBar(root, -STREET_MID, ws(16.2), crossSpan, true)
 
-  // East (rechter): 2 zebrapaden
   addZebraCrossing(root, STREET_MID, -ws(14), crossSpan, crossDepth, Math.PI / 2)
   addStopBar(root, STREET_MID, -ws(16.2), crossSpan, true)
   addZebraCrossing(root, STREET_MID, ws(14), crossSpan, crossDepth, Math.PI / 2)
   addStopBar(root, STREET_MID, ws(16.2), crossSpan, true)
 
-  // Lamps on outer sidewalk — skip corner zones
+  // North / south arms: zebras for E–W pedestrian crossings (ring ↔ plaza)
+  addZebraCrossing(root, -ws(14), -STREET_MID, crossSpan, crossDepth, 0)
+  addStopBar(root, -ws(16.2), -STREET_MID, crossSpan, false)
+  addZebraCrossing(root, ws(14), -STREET_MID, crossSpan, crossDepth, 0)
+  addStopBar(root, ws(16.2), -STREET_MID, crossSpan, false)
+
+  addZebraCrossing(root, -ws(14), STREET_MID, crossSpan, crossDepth, 0)
+  addStopBar(root, -ws(16.2), STREET_MID, crossSpan, false)
+  addZebraCrossing(root, ws(14), STREET_MID, crossSpan, crossDepth, 0)
+  addStopBar(root, ws(16.2), STREET_MID, crossSpan, false)
+
+  // Outer sidewalk strip just outside the ring
+  const outerWalk = STREET_OUTER + 0.85
+  const walkMat = new THREE.MeshStandardMaterial({ color: 0x5a5e68, roughness: 0.9, metalness: 0.08 })
+  for (const sign of [-1, 1] as const) {
+    const n = new THREE.Mesh(new THREE.BoxGeometry(PLAZA_SIZE + 3.4, 0.08, 1.5), walkMat)
+    n.position.set(0, 0.04, sign * outerWalk)
+    n.receiveShadow = true
+    root.add(n)
+    const e = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, PLAZA_SIZE + 3.4), walkMat)
+    e.position.set(sign * outerWalk, 0.04, 0)
+    e.receiveShadow = true
+    root.add(e)
+    addCurbSegment(root, 0, sign * (STREET_OUTER + 0.11), PLAZA_SIZE, true)
+    addCurbSegment(root, sign * (STREET_OUTER + 0.11), 0, PLAZA_SIZE, false)
+  }
+  // Lamps on outer sidewalk — arms face inward over the roadway
   const lampSpacing = ws(9)
-  const lampInset = STREET_OUTER - ws(0.55)
+  const lampInset = STREET_OUTER + ws(0.7)
   for (let t = -PLAZA_HALF + ws(6); t <= PLAZA_HALF - ws(6); t += lampSpacing) {
     addStreetLamp(root, ctx, t, -lampInset, Math.PI / 2)
     addStreetLamp(root, ctx, t, lampInset, -Math.PI / 2)

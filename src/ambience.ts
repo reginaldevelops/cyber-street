@@ -722,32 +722,32 @@ function spawnCityStreetLife(scene: THREE.Scene, droids: DroidNPC[]) {
   }
 }
 
-/** Commuters hanging at the metro station behind the fountain. */
+/** Commuters hanging at the metro station on the south plaza avenue. */
 function spawnSubwayLoiterers(scene: THREE.Scene, droids: DroidNPC[]) {
   const sx = SUBWAY_X
-  const sz = SUBWAY_Z
-  const face = (-3 * Math.PI) / 4 // toward fountain/diner
+  const sz = SUBWAY_Z - 3.5
+  const face = Math.PI // face south toward the tracks
 
-  const idle1 = buildDroidNPC(sx - 2.8, sz - 1.5, 'idle')
+  const idle1 = buildDroidNPC(sx - 2.8, sz - 0.4, 'idle')
   idle1.root.rotation.y = face
   droids.push(idle1)
   scene.add(idle1.root)
 
-  const idle2 = buildDroidNPC(sx - 1.0, sz - 3.2, 'idle')
-  idle2.root.rotation.y = face + 0.6
+  const idle2 = buildDroidNPC(sx + 1.2, sz - 0.2, 'idle')
+  idle2.root.rotation.y = face + 0.4
   idle2.armR.rotation.x = -0.55
   droids.push(idle2)
   scene.add(idle2.root)
 
-  // Walker along the elevated track approach (westbound from station)
-  const walker = buildDroidNPC(sx - 1, sz + 1, 'walking')
+  // Walker along the platform / approach
+  const walker = buildDroidNPC(sx - 1, sz, 'walking')
   walker.root.userData.spawn = new THREE.Vector2(sx, sz)
   walker.path = [
-    new THREE.Vector2(-1, 2),
-    new THREE.Vector2(-5, 3),
-    new THREE.Vector2(-8, 1),
-    new THREE.Vector2(-4, -1),
-    new THREE.Vector2(-1, 2),
+    new THREE.Vector2(-4, 0),
+    new THREE.Vector2(-1, 0.5),
+    new THREE.Vector2(3, 0),
+    new THREE.Vector2(1, -0.4),
+    new THREE.Vector2(-2, 0),
   ]
   droids.push(walker)
   scene.add(walker.root)

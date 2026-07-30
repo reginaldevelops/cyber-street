@@ -188,7 +188,7 @@ export class Game {
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.BasicShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.18
+    this.renderer.toneMappingExposure = 1.05
     this.renderer.domElement.style.imageRendering = 'pixelated'
     container.appendChild(this.renderer.domElement)
 
@@ -204,7 +204,7 @@ export class Game {
 
     const pmrem = new THREE.PMREMGenerator(this.renderer)
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
-    this.scene.environmentIntensity = 0.72
+    this.scene.environmentIntensity = 0.55
 
     this.setupPost()
     this.setupMusic()
@@ -290,16 +290,16 @@ export class Game {
   // ── Wereld ──────────────────────────────────────────────────────────────
 
   private buildWorld() {
-    // Clear daytime cyber-city: bright sky, warm sun, soft haze
-    this.scene.background = new THREE.Color(0x87b8e8)
-    this.scene.fog = new THREE.FogExp2(0xb8cce0, 0.0045)
+    // Daytime, slightly muted — still clear day, not night
+    this.scene.background = new THREE.Color(0x6a9ac8)
+    this.scene.fog = new THREE.FogExp2(0x8aabcc, 0.0055)
 
-    this.scene.add(new THREE.AmbientLight(0xfff2e0, 0.62))
+    this.scene.add(new THREE.AmbientLight(0xffefe0, 0.48))
 
-    const hemi = new THREE.HemisphereLight(0xc8e4ff, 0xb8a078, 1.15)
+    const hemi = new THREE.HemisphereLight(0xb8d4f0, 0x9a8868, 0.92)
     this.scene.add(hemi)
 
-    const sun = new THREE.DirectionalLight(0xfff0d4, 1.35)
+    const sun = new THREE.DirectionalLight(0xffecd0, 1.05)
     sun.position.set(22, 38, 14)
     sun.castShadow = true
     sun.shadow.mapSize.set(2048, 2048)
@@ -312,11 +312,11 @@ export class Game {
     sun.shadow.bias = -0.0008
     this.scene.add(sun)
 
-    const fill = new THREE.DirectionalLight(0xa8c8ff, 0.38)
+    const fill = new THREE.DirectionalLight(0xa0bce8, 0.32)
     fill.position.set(-16, 18, -12)
     this.scene.add(fill)
 
-    const rim = new THREE.DirectionalLight(0xffe8c8, 0.18)
+    const rim = new THREE.DirectionalLight(0xffe0b8, 0.14)
     rim.position.set(6, 8, -20)
     this.scene.add(rim)
 

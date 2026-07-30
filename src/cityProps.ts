@@ -206,8 +206,8 @@ export function addUtilityBox(root: THREE.Group, x: number, z: number, rotY: num
 }
 
 export function addSidewalkTiles(root: THREE.Group, cx: number, cz: number, w: number, d: number) {
-  const tileA = new THREE.MeshStandardMaterial({ color: 0x2e2c38, roughness: 0.82, metalness: 0.12 })
-  const tileB = new THREE.MeshStandardMaterial({ color: 0x262430, roughness: 0.82, metalness: 0.12 })
+  const tileA = new THREE.MeshStandardMaterial({ color: 0x5a5e68, roughness: 0.88, metalness: 0.08 })
+  const tileB = new THREE.MeshStandardMaterial({ color: 0x50545e, roughness: 0.88, metalness: 0.08 })
   const tileSize = 1.05
   const gap = 0.1
   const h = 0.07
