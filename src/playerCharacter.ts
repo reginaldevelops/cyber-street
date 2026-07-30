@@ -6,6 +6,8 @@ export interface PlayerRig {
   body: THREE.Group
   legL: THREE.Group
   legR: THREE.Group
+  armL: THREE.Group
+  armR: THREE.Group
   gun: THREE.Group
   gunHolder: THREE.Group
   muzzle: THREE.Object3D
@@ -141,8 +143,9 @@ export function buildPlayerCharacter(
   body.add(tip)
 
   // ── Arms ─────────────────────────────────────────────────────────────────
-  const buildArm = (side: number) => {
-    const arm = new THREE.Group()
+  const armL = new THREE.Group()
+  const armR = new THREE.Group()
+  const buildArm = (arm: THREE.Group, side: number) => {
     arm.position.set(side * 0.4, 1.34, 0)
     const upper = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.34, 0.16), coat)
     upper.position.y = -0.16
@@ -156,9 +159,10 @@ export function buildPlayerCharacter(
     const hand = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), dark)
     hand.position.y = -0.72
     arm.add(upper, guard, fore, cuff, hand)
-    return arm
   }
-  body.add(buildArm(-1), buildArm(1))
+  buildArm(armL, -1)
+  buildArm(armR, 1)
+  body.add(armL, armR)
 
   // ── Legs (pivoted for walk cycle) ────────────────────────────────────────
   const legL = new THREE.Group()
@@ -218,6 +222,8 @@ export function buildPlayerCharacter(
     body,
     legL,
     legR,
+    armL,
+    armR,
     gun,
     gunHolder,
     muzzle,

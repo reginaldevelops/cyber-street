@@ -30,10 +30,14 @@ import {
   ws,
 } from './worldConfig.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
-const WALK_SPEED = 5.4
-const SPRINT_SPEED = 8.8
-const ACCEL = 14
-const DECEL = 11
+const WALK_SPEED = 5.6
+const SPRINT_SPEED = 9.2
+const ACCEL = 18
+const DECEL = 16
+/** How quickly the body turns to face move / aim (higher = snappier). */
+const FACE_TURN = 14
+const FACE_TURN_IDLE = 8
+const MOVE_FACE_THRESHOLD = 0.35
 
 const ISO_CAM_OFFSET = new THREE.Vector3(ISO_CAM_DIST, ISO_CAM_DIST, ISO_CAM_DIST)
 const ISO_FOLLOW = 9
@@ -117,6 +121,8 @@ export class Game {
   private playerBody = new THREE.Group()
   private legL = new THREE.Group()
   private legR = new THREE.Group()
+  private armL = new THREE.Group()
+  private armR = new THREE.Group()
   private gun!: THREE.Group
   private gunHolder = new THREE.Group()
   private muzzle = new THREE.Object3D()
@@ -132,6 +138,8 @@ export class Game {
   private velocity = new THREE.Vector3()
   private gunKick = 0
   private aimYaw = 0
+  /** Body facing — follows move dir so locomotion never moonwalks. */
+  private faceYaw = 0
   private aimPoint = new THREE.Vector3(0, 0, 8)
   private mouseScreen = { x: 0, y: 0 }
 
@@ -506,6 +514,8 @@ export class Game {
       this.playerBody = rig.body
       this.legL = rig.legL
       this.legR = rig.legR
+      this.armL = rig.armL
+      this.armR = rig.armR
       this.gun = rig.gun
       this.gunHolder = rig.gunHolder
       this.muzzle = rig.muzzle
@@ -523,6 +533,8 @@ export class Game {
     this.playerBody = new THREE.Group()
     this.legL = new THREE.Group()
     this.legR = new THREE.Group()
+    this.armL = new THREE.Group()
+    this.armR = new THREE.Group()
     this.gun = new THREE.Group()
     this.gunHolder = new THREE.Group()
     this.muzzle = new THREE.Object3D()
@@ -545,6 +557,8 @@ export class Game {
       this.playerBody = rig.body
       this.legL = rig.legL
       this.legR = rig.legR
+      this.armL = rig.armL
+      this.armR = rig.armR
       this.gun = rig.gun
       this.gunHolder = rig.gunHolder
       this.muzzle = rig.muzzle
@@ -849,14 +863,16 @@ export class Game {
 
     this.updateAimFromMouse()
 
+    // Camera-relative WASD (isometric standard)
     const wish = new THREE.Vector3()
     if (this.keys.w) wish.add(ISO_FORWARD)
     if (this.keys.s) wish.sub(ISO_FORWARD)
     if (this.keys.d) wish.add(ISO_RIGHT)
     if (this.keys.a) wish.sub(ISO_RIGHT)
 
-    const maxSpeed = this.keys.sprint && this.keys.w ? SPRINT_SPEED : WALK_SPEED
     const hasInput = wish.lengthSq() > 0
+    // Sprint in any move direction (not only W) — Diablo / Hades style
+    const maxSpeed = this.keys.sprint && hasInput ? SPRINT_SPEED : WALK_SPEED
     if (hasInput) wish.normalize().multiplyScalar(maxSpeed)
 
     const lambda = hasInput ? ACCEL : DECEL
@@ -872,16 +888,30 @@ export class Game {
       this.player.position.z, -PLAYER_LIMIT_Z, PLAYER_LIMIT_Z
     )
 
+    // Aim yaw always tracks mouse (for shooting / look)
     const dx = this.aimPoint.x - this.player.position.x
     const dz = this.aimPoint.z - this.player.position.z
     if (dx * dx + dz * dz > 0.04) {
       this.aimYaw = Math.atan2(dx, dz)
-      this.player.rotation.y = dampAngle(this.player.rotation.y, this.aimYaw, 18, dt)
     }
 
     const speed = this.velocity.length()
-    const speedRatio = speed / SPRINT_SPEED
-    const moving = speed > 0.12
+    const moving = speed > MOVE_FACE_THRESHOLD
+    const speedRatio = THREE.MathUtils.clamp(speed / SPRINT_SPEED, 0, 1)
+
+    // Body faces travel direction while moving → legs never moonwalk.
+    // When idle (or firing in combat), face the aim point like twin-stick ARPGs.
+    let targetFace = this.faceYaw
+    if (COMBAT_ENABLED && this.firing) {
+      targetFace = this.aimYaw
+    } else if (moving) {
+      targetFace = Math.atan2(this.velocity.x, this.velocity.z)
+    } else if (COMBAT_ENABLED) {
+      targetFace = this.aimYaw
+    }
+    const turnRate = moving ? FACE_TURN : FACE_TURN_IDLE
+    this.faceYaw = dampAngle(this.faceYaw, targetFace, turnRate, dt)
+    this.player.rotation.y = this.faceYaw
 
     updatePlayerAnimations(
       {
@@ -892,30 +922,38 @@ export class Game {
       },
       dt,
       moving,
-      this.keys.sprint && this.keys.w,
+      this.keys.sprint && hasInput,
+      speedRatio,
     )
 
     if (this.playerMixer) {
-      // GLB clips drive locomotion — skip procedural leg swing
+      // GLB clips drive locomotion
     } else if (moving) {
-      this.walkPhase += dt * (6 + speedRatio * 5)
-      const swing = Math.sin(this.walkPhase) * 0.42 * Math.min(speedRatio * 2, 1)
+      // Procedural walk locked to body forward (body already faces velocity)
+      this.walkPhase += dt * (7.5 + speedRatio * 6.5)
+      const amp = 0.48 * Math.min(speedRatio * 1.8, 1)
+      const swing = Math.sin(this.walkPhase) * amp
       this.legL.rotation.x = swing
       this.legR.rotation.x = -swing
-      this.playerBody.position.y = Math.abs(Math.sin(this.walkPhase * 2)) * 0.035 * Math.min(speedRatio * 2, 1)
+      this.armL.rotation.x = -swing * 0.55
+      this.armR.rotation.x = swing * 0.55
+      this.playerBody.position.y = Math.abs(Math.sin(this.walkPhase * 2)) * 0.04 * Math.min(speedRatio * 1.6, 1)
     } else {
-      this.legL.rotation.x = THREE.MathUtils.damp(this.legL.rotation.x, 0, 12, dt)
-      this.legR.rotation.x = THREE.MathUtils.damp(this.legR.rotation.x, 0, 12, dt)
-      this.playerBody.position.y = THREE.MathUtils.damp(this.playerBody.position.y, 0, 12, dt)
+      this.legL.rotation.x = THREE.MathUtils.damp(this.legL.rotation.x, 0, 14, dt)
+      this.legR.rotation.x = THREE.MathUtils.damp(this.legR.rotation.x, 0, 14, dt)
+      this.armL.rotation.x = THREE.MathUtils.damp(this.armL.rotation.x, 0, 14, dt)
+      this.armR.rotation.x = THREE.MathUtils.damp(this.armR.rotation.x, 0, 14, dt)
+      this.playerBody.position.y = THREE.MathUtils.damp(this.playerBody.position.y, 0, 14, dt)
     }
 
+    // Lean into acceleration / strafe relative to facing
     const localVel = this.velocity.clone().applyAxisAngle(
-      new THREE.Vector3(0, 1, 0), -this.player.rotation.y
+      new THREE.Vector3(0, 1, 0), -this.faceYaw
     )
-    const targetLeanZ = THREE.MathUtils.clamp(-localVel.x * 0.035, -0.12, 0.12)
-    const targetLeanX = THREE.MathUtils.clamp(localVel.z * 0.028, -0.1, 0.1)
-    this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 10, dt)
-    this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, targetLeanX, 10, dt)
+    const targetLeanZ = THREE.MathUtils.clamp(-localVel.x * 0.03, -0.1, 0.1)
+    const targetLeanX = THREE.MathUtils.clamp(localVel.z * 0.022, -0.08, 0.08)
+    this.playerBody.rotation.z = THREE.MathUtils.damp(this.playerBody.rotation.z, targetLeanZ, 12, dt)
+    this.playerBody.rotation.x = THREE.MathUtils.damp(this.playerBody.rotation.x, targetLeanX, 12, dt)
 
     this.gunKick = Math.max(0, this.gunKick - dt * 6)
     this.gunHolder.rotation.x = THREE.MathUtils.damp(

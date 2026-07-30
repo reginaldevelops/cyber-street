@@ -103,7 +103,9 @@ function buildRigFromScene(model: THREE.Object3D, animations: THREE.AnimationCli
 
   const legL = new THREE.Group()
   const legR = new THREE.Group()
-  body.add(legL, legR)
+  const armL = new THREE.Group()
+  const armR = new THREE.Group()
+  body.add(legL, legR, armL, armR)
 
   const gun = new THREE.Group()
   gun.visible = false
@@ -137,6 +139,8 @@ function buildRigFromScene(model: THREE.Object3D, animations: THREE.AnimationCli
     body,
     legL,
     legR,
+    armL,
+    armR,
     gun,
     gunHolder,
     muzzle,
@@ -176,12 +180,13 @@ export async function loadHitemPlayer(): Promise<PlayerRig> {
   throw lastErr ?? new Error('No player model could be loaded')
 }
 
-/** Crossfade locomotion clips when available. */
+/** Crossfade locomotion clips when available. Speed scales walk cadence. */
 export function updatePlayerAnimations(
   rig: Pick<PlayerRig, 'mixer' | 'idleAction' | 'walkAction' | 'runAction'>,
   dt: number,
   moving: boolean,
   sprint: boolean,
+  speedRatio = 1,
 ) {
   if (rig.mixer) rig.mixer.update(dt)
   if (!rig.walkAction && !rig.idleAction) return
@@ -198,7 +203,9 @@ export function updatePlayerAnimations(
   for (const action of all) {
     if (action === target) {
       action.enabled = true
-      action.setEffectiveTimeScale(sprint && action === rig.runAction ? 1.15 : 1)
+      const cadence =
+        action === rig.runAction ? 1.1 + speedRatio * 0.15 : 0.85 + speedRatio * 0.45
+      action.setEffectiveTimeScale(moving ? cadence : 1)
       action.setEffectiveWeight(THREE.MathUtils.damp(action.getEffectiveWeight(), 1, 10, dt))
       if (!action.isRunning()) action.play()
     } else {
