@@ -2,20 +2,20 @@ import * as THREE from 'three'
 
 const _dummy = new THREE.Object3D()
 
-/** Shared chunky asphalt tile look for roads. */
-export function makeTileAsphaltMat(seedTint = 0x1c1c22) {
+/** Shared chunky asphalt tile look for roads (daytime-readable greys). */
+export function makeTileAsphaltMat(seedTint = 0x3a3e48) {
   return new THREE.MeshStandardMaterial({
     color: seedTint,
-    roughness: 0.88,
-    metalness: 0.22,
+    roughness: 0.92,
+    metalness: 0.12,
   })
 }
 
 export function makeTileGroutMat() {
   return new THREE.MeshStandardMaterial({
-    color: 0x0a0a10,
-    roughness: 0.95,
-    metalness: 0.05,
+    color: 0x2a2e36,
+    roughness: 0.96,
+    metalness: 0.04,
   })
 }
 

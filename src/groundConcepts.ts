@@ -149,7 +149,7 @@ function addDrainChannel(
 ) {
   const recess = new THREE.Mesh(
     new THREE.PlaneGeometry(width, len),
-    new THREE.MeshStandardMaterial({ color: 0x080610, roughness: 0.9, metalness: 0.1 }),
+    new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.9, metalness: 0.1 }),
   )
   recess.rotation.x = -Math.PI / 2
   recess.rotation.z = rotZ
@@ -159,7 +159,7 @@ function addDrainChannel(
   const glowMat = new THREE.MeshStandardMaterial({
     color,
     emissive: color,
-    emissiveIntensity: 0.65,
+    emissiveIntensity: 0.35,
     roughness: 0.25,
     metalness: 0.5,
   })
@@ -167,7 +167,7 @@ function addDrainChannel(
   glow.rotation.copy(recess.rotation)
   glow.position.set(x, y + 0.004, z)
   root.add(glow)
-  ctx.flickerMats.push({ mat: glowMat, base: 0.65, t: Math.random() * 3 })
+  ctx.flickerMats.push({ mat: glowMat, base: 0.35, t: Math.random() * 3 })
 }
 
 // ── Agent A: Deep Grate Cathedral ─────────────────────────────────────────────
@@ -179,7 +179,7 @@ function buildGrateDeep(ctx: GroundBuildContext): THREE.Group {
 
   const grateTex = makeGrateTexture('heavy')
   const grateMat = new THREE.MeshStandardMaterial({ map: grateTex, color: 0x3a4450, roughness: 0.32, metalness: 0.9 })
-  const solidMat = new THREE.MeshStandardMaterial({ color: 0x121018, roughness: 0.78, metalness: 0.25 })
+  const solidMat = new THREE.MeshStandardMaterial({ color: 0x343840, roughness: 0.82, metalness: 0.18 })
   const boltMat = new THREE.MeshStandardMaterial({ color: 0x5a6068, roughness: 0.35, metalness: 0.92 })
 
   const tileSize = TILE_SIZE

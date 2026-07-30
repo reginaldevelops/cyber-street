@@ -18,15 +18,15 @@ import {
   ws,
 } from './worldConfig.js'
 
-const WALL_DARK = 0x1a1624
-const WALL_MID = 0x2a2436
-const WALL_TRIM = 0x3a3448
-const SKYLINE_SIL = 0x120e1a
-const STREET_DARK = 0x121018
-const STREET_WET = 0x0e0c14
-const METAL = 0x4a5058
-const PIPE = 0x3a3844
-const GRATE = 0x2a2830
+const WALL_DARK = 0x2a2834
+const WALL_MID = 0x3e3a4a
+const WALL_TRIM = 0x524e5e
+const SKYLINE_SIL = 0x5a6a7e
+const STREET_DARK = 0x343840
+const STREET_WET = 0x3a3e48
+const METAL = 0x6a7078
+const PIPE = 0x5a5864
+const GRATE = 0x4a4850
 
 const NEON_CYAN = 0x00f6ff
 const NEON_PINK = 0xff2d95
@@ -329,9 +329,9 @@ export function buildSkylineBackdrop(ctx: CitySurroundContext): THREE.Group {
 
   const windowGeo = new THREE.PlaneGeometry(0.45, 0.65)
   const windowMats = [
-    new THREE.MeshStandardMaterial({ color: WINDOW_WARM, emissive: WINDOW_WARM, emissiveIntensity: 0.5 }),
-    new THREE.MeshStandardMaterial({ color: WINDOW_COOL, emissive: WINDOW_COOL, emissiveIntensity: 0.45 }),
-    new THREE.MeshStandardMaterial({ color: WINDOW_PINK, emissive: WINDOW_PINK, emissiveIntensity: 0.4 }),
+    new THREE.MeshStandardMaterial({ color: WINDOW_WARM, emissive: WINDOW_WARM, emissiveIntensity: 0.18 }),
+    new THREE.MeshStandardMaterial({ color: WINDOW_COOL, emissive: WINDOW_COOL, emissiveIntensity: 0.14 }),
+    new THREE.MeshStandardMaterial({ color: WINDOW_PINK, emissive: WINDOW_PINK, emissiveIntensity: 0.12 }),
   ]
 
   for (const layer of layers) {

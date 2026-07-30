@@ -29,8 +29,8 @@ function markingMat(emissive = 0.05) {
 
 /** Square ring of asphalt tiles around the plaza. */
 function buildStreetRingMesh(root: THREE.Group) {
-  const mat = makeTileAsphaltMat(0x1c1c22)
-  const alt = makeTileAsphaltMat(0x24242c)
+  const mat = makeTileAsphaltMat(0x3a3e48)
+  const alt = makeTileAsphaltMat(0x464a54)
   addTiledStreetRing(root, mat, alt, STREET_INNER, STREET_OUTER, 1.5)
 }
 

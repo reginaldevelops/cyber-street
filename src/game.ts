@@ -188,7 +188,7 @@ export class Game {
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.BasicShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.32
+    this.renderer.toneMappingExposure = 1.18
     this.renderer.domElement.style.imageRendering = 'pixelated'
     container.appendChild(this.renderer.domElement)
 
@@ -204,7 +204,7 @@ export class Game {
 
     const pmrem = new THREE.PMREMGenerator(this.renderer)
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
-    this.scene.environmentIntensity = 0.42
+    this.scene.environmentIntensity = 0.72
 
     this.setupPost()
     this.setupMusic()
@@ -280,8 +280,8 @@ export class Game {
   private setupPost() {
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    // Soft bloom fights pixel look — keep it subtle at low res
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.28, 0.55, 0.88)
+    // Daytime: lighter bloom so neon accents stay readable without night glow
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.14, 0.45, 0.92)
     this.composer.addPass(this.bloom)
     this.composer.addPass(createPixelQuantizePass())
     this.composer.addPass(new OutputPass())
@@ -290,29 +290,35 @@ export class Game {
   // ── Wereld ──────────────────────────────────────────────────────────────
 
   private buildWorld() {
-    this.scene.background = new THREE.Color(0x141024)
-    this.scene.fog = new THREE.FogExp2(0x221636, 0.009)
+    // Clear daytime cyber-city: bright sky, warm sun, soft haze
+    this.scene.background = new THREE.Color(0x87b8e8)
+    this.scene.fog = new THREE.FogExp2(0xb8cce0, 0.0045)
 
-    this.scene.add(new THREE.AmbientLight(0x665577, 0.45))
+    this.scene.add(new THREE.AmbientLight(0xfff2e0, 0.62))
 
-    const hemi = new THREE.HemisphereLight(0x8aadff, 0x281018, 0.85)
+    const hemi = new THREE.HemisphereLight(0xc8e4ff, 0xb8a078, 1.15)
     this.scene.add(hemi)
 
-    const moon = new THREE.DirectionalLight(0xb8c4ff, 0.78)
-    moon.position.set(-14, 26, -10)
-    moon.castShadow = true
-    moon.shadow.mapSize.set(2048, 2048)
-    moon.shadow.camera.near = 1
-    moon.shadow.camera.far = 160
-    moon.shadow.camera.left = -72
-    moon.shadow.camera.right = 72
-    moon.shadow.camera.top = 72
-    moon.shadow.camera.bottom = -72
-    this.scene.add(moon)
+    const sun = new THREE.DirectionalLight(0xfff0d4, 1.35)
+    sun.position.set(22, 38, 14)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(2048, 2048)
+    sun.shadow.camera.near = 1
+    sun.shadow.camera.far = 160
+    sun.shadow.camera.left = -72
+    sun.shadow.camera.right = 72
+    sun.shadow.camera.top = 72
+    sun.shadow.camera.bottom = -72
+    sun.shadow.bias = -0.0008
+    this.scene.add(sun)
 
-    const fill = new THREE.DirectionalLight(0xff88cc, 0.22)
-    fill.position.set(8, 10, 14)
+    const fill = new THREE.DirectionalLight(0xa8c8ff, 0.38)
+    fill.position.set(-16, 18, -12)
     this.scene.add(fill)
+
+    const rim = new THREE.DirectionalLight(0xffe8c8, 0.18)
+    rim.position.set(6, 8, -20)
+    this.scene.add(rim)
 
     this.buildPlazaFloor(this.groundConcept)
     this.buildCentralHub()
@@ -323,24 +329,25 @@ export class Game {
       colliders: this.worldColliders,
     })
 
+    // No rain during clear daytime
     this.rain = this.makeRain()
-    this.scene.add(this.rain)
+    this.rain.visible = false
 
     this.ambience = populateSceneAmbience(this.scene, this.flickerMats)
     applyNearestTextures(this.scene)
   }
 
-  private addPuddleDecal(x: number, z: number, radius: number, color: number, intensity = 0.22) {
+  private addPuddleDecal(x: number, z: number, radius: number, color: number, intensity = 0.12) {
     const glowTex = this.makeGlowTexture()
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x080610,
+      color: 0x3a4250,
       emissive: color,
       emissiveIntensity: intensity,
       emissiveMap: glowTex,
       transparent: true,
-      opacity: 0.75,
-      roughness: 0.1,
-      metalness: 0.9,
+      opacity: 0.45,
+      roughness: 0.18,
+      metalness: 0.75,
       depthWrite: false,
     })
     const puddle = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2, radius * 2), mat)
@@ -1192,19 +1199,21 @@ export class Game {
   // ── Sfeer-updates ───────────────────────────────────────────────────────
 
   private updateAtmosphere(dt: number, elapsed: number) {
-    // Regen valt en wrapt terug omhoog
-    const pos = this.rain.geometry.getAttribute('position') as THREE.BufferAttribute
-    const spread = CITY_HALF
-    for (let i = 0; i < pos.count; i++) {
-      let y = pos.getY(i) - 19 * dt
-      if (y < 0) y += 20
-      pos.setY(i, y)
-      let x = pos.getX(i) + 2.4 * dt * Math.sin(i)
-      if (x > spread) x -= spread * 2
-      if (x < -spread) x += spread * 2
-      pos.setX(i, x)
+    // Regen alleen als zichtbaar (nacht/regen-modus)
+    if (this.rain.visible) {
+      const pos = this.rain.geometry.getAttribute('position') as THREE.BufferAttribute
+      const spread = CITY_HALF
+      for (let i = 0; i < pos.count; i++) {
+        let y = pos.getY(i) - 19 * dt
+        if (y < 0) y += 20
+        pos.setY(i, y)
+        let x = pos.getX(i) + 2.4 * dt * Math.sin(i)
+        if (x > spread) x -= spread * 2
+        if (x < -spread) x += spread * 2
+        pos.setX(i, x)
+      }
+      pos.needsUpdate = true
     }
-    pos.needsUpdate = true
 
     // Neon-flikkering
     for (const f of this.flickerMats) {

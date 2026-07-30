@@ -188,8 +188,8 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
   const root = new THREE.Group()
   root.name = 'city-grid'
 
-  const asphaltMat = makeTileAsphaltMat(0x1c1c22)
-  const asphaltAlt = makeTileAsphaltMat(0x22222a)
+  const asphaltMat = makeTileAsphaltMat(0x3a3e48)
+  const asphaltAlt = makeTileAsphaltMat(0x444850)
   const curbMat = new THREE.MeshStandardMaterial({ color: 0x4a4848, roughness: 0.85, metalness: 0.15 })
   const markMat = markingMat()
 
@@ -197,7 +197,7 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
   // Dark grout underlay — shows through tile seams
   const base = new THREE.Mesh(
     new THREE.PlaneGeometry(citySpan + 8, citySpan + 8),
-    new THREE.MeshStandardMaterial({ color: 0x08060c, roughness: 0.95, metalness: 0.05 }),
+    new THREE.MeshStandardMaterial({ color: 0x3a3e48, roughness: 0.95, metalness: 0.05 }),
   )
   base.rotation.x = -Math.PI / 2
   base.position.y = -0.02
@@ -293,8 +293,8 @@ export function buildCityGrid(ctx: CityGridContext): THREE.Group {
 
       const kind = civicKindAt(gx, gz) ?? pickBuildingKind(gx, gz, seed)
       if (kind !== 'park') {
-        const padMat = makeTileAsphaltMat(0x141018)
-        const padAlt = makeTileAsphaltMat(0x1a1620)
+        const padMat = makeTileAsphaltMat(0x3e424c)
+        const padAlt = makeTileAsphaltMat(0x484c56)
         addTilePlane(root, {
           cx,
           cz,
