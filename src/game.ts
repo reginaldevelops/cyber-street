@@ -20,13 +20,13 @@ import {
 } from './playerModel.js'
 import { buildPlayerCharacter } from './playerCharacter.js'
 import {
-  buildSewerTunnel,
-  clampSewerPosition,
+  buildSewerEntrance,
   SEWER_ENTRANCE_X,
   SEWER_ENTRANCE_Z,
   SEWER_ENTER_RADIUS,
-  SEWER_SPAWN,
 } from './sewer.js'
+import { DungeonSystem } from './dungeon/DungeonSystem.js'
+import { tryAddItem, createItemInstance } from './dungeon/dungeonInventory.js'
 import {
   applyNearestTextures,
   applyPixelResolution,
@@ -199,7 +199,8 @@ export class Game {
   private exitSewerBtn: HTMLButtonElement | null
   private inSewer = false
   private sewerCooldown = 0
-  private sewerTunnel: THREE.Group | null = null
+  private sewerEntrance: THREE.Group | null = null
+  private dungeon!: DungeonSystem
   private surfaceObjects: THREE.Object3D[] = []
   private surfaceLights: THREE.Light[] = []
   private surfaceReturnPos = new THREE.Vector3(SEWER_ENTRANCE_X, 0, SEWER_ENTRANCE_Z + 3.2)
@@ -399,22 +400,27 @@ export class Game {
     this.ambience = populateSceneAmbience(this.scene, this.flickerMats)
     applyNearestTextures(this.scene)
 
-    // Underground sewer pocket (hidden until entered)
-    this.sewerTunnel = buildSewerTunnel({
+    // Surface sewer hatch (dungeon generates underground on enter)
+    this.sewerEntrance = buildSewerEntrance({
       scene: this.scene,
       flickerMats: this.flickerMats,
       colliders: this.worldColliders,
     })
+    this.scene.add(this.sewerEntrance)
 
-    // Snapshot surface objects/lights so we can hide them in the sewer
+    // Snapshot surface objects/lights so we can hide them in the dungeon
     for (const child of [...this.scene.children]) {
-      if (child === this.sewerTunnel) continue
       if ((child as THREE.Light).isLight) {
         this.surfaceLights.push(child as THREE.Light)
         continue
       }
       this.surfaceObjects.push(child)
     }
+
+    this.dungeon = new DungeonSystem(this.scene)
+    // Starter meds for the first dive
+    tryAddItem(this.dungeon.playerProgress, createItemInstance('med-gel-injector', 3))
+    tryAddItem(this.dungeon.playerProgress, createItemInstance('ablative-patch', 1))
   }
 
   private addPuddleDecal(x: number, z: number, radius: number, color: number, intensity = 0.12) {
@@ -892,7 +898,39 @@ export class Game {
   private bindEvents() {
     window.addEventListener('keydown', (e) => {
       if (!this.playing) return
-      if (e.code.startsWith('Digit')) {
+
+      if (this.inSewer) {
+        if (e.code === 'KeyI' || e.code === 'Tab') {
+          e.preventDefault()
+          this.dungeon.toggleInventory()
+          return
+        }
+        if (e.code === 'KeyE') {
+          const result = this.dungeon.interact(this.player.position)
+          if (result === 'exit') this.exitSewer()
+          return
+        }
+        if (e.code === 'KeyR') {
+          this.dungeon.startReload()
+          return
+        }
+        if (e.code === 'Digit1') {
+          this.dungeon.useHotkey(1)
+          return
+        }
+        if (e.code === 'Digit2') {
+          this.dungeon.useHotkey(2)
+          return
+        }
+        if (e.code === 'Digit3') {
+          this.dungeon.useHotkey(3)
+          return
+        }
+        if (e.code === 'Escape') {
+          this.dungeon.closeInventory()
+          return
+        }
+      } else if (e.code.startsWith('Digit')) {
         const concept = conceptByKey(e.code.replace('Digit', ''))
         if (concept) this.switchGroundConcept(concept)
       }
@@ -987,7 +1025,8 @@ export class Game {
 
     this.player.position.addScaledVector(this.velocity, dt)
     if (this.inSewer) {
-      clampSewerPosition(this.player.position)
+      const prev = this.player.position.clone().addScaledVector(this.velocity, -dt)
+      this.dungeon.constrainPlayer(prev, this.player.position)
     } else {
       this.player.position.x = THREE.MathUtils.clamp(
         this.player.position.x, -PLAYER_LIMIT_X, PLAYER_LIMIT_X
@@ -1121,19 +1160,24 @@ export class Game {
   }
 
   private enterSewer() {
-    if (this.inSewer || !this.sewerTunnel) return
+    if (this.inSewer) return
     this.inSewer = true
     this.sewerCooldown = 1.2
     this.velocity.set(0, 0, 0)
     this.surfaceReturnPos.set(SEWER_ENTRANCE_X + 0.2, 0, SEWER_ENTRANCE_Z + 3.4)
-    this.player.position.copy(SEWER_SPAWN)
-    this.faceYaw = Math.PI / 2
+
+    const spawn = this.dungeon.enter()
+    this.player.position.copy(spawn)
+    this.faceYaw = 0
     this.player.rotation.y = this.faceYaw
     this.camFocus.copy(this.player.position)
 
-    for (const obj of this.surfaceObjects) obj.visible = false
+    for (const obj of this.surfaceObjects) {
+      if (obj === this.player) continue
+      obj.visible = false
+    }
     for (const light of this.surfaceLights) light.visible = false
-    this.sewerTunnel.visible = true
+    for (const enemy of this.enemies) enemy.root.visible = false
 
     if (this.scene.background instanceof THREE.Color) this.savedBg.copy(this.scene.background)
     this.scene.background = new THREE.Color(0x0a1210)
@@ -1141,14 +1185,15 @@ export class Game {
       this.savedFogColor.copy(this.scene.fog.color)
       this.savedFogDensity = this.scene.fog.density
       this.scene.fog.color.set(0x0c1a14)
-      this.scene.fog.density = 0.028
+      this.scene.fog.density = 0.022
     }
 
     document.body.classList.add('sewer-mode')
     this.exitSewerBtn?.classList.remove('hidden')
     this.sewerPromptEl?.classList.add('hidden')
     this.conceptPanelEl?.classList.add('hidden')
-    this.hintEl.textContent = 'Sewer tunnels · WASD lopen · Exit sewer via knop bovenin'
+    this.hintEl.textContent =
+      'Dungeon · WASD · Muis mikken · LMB schiet · E loot/exit · I inventory · 1-3 consumables · R reload'
     this.hintEl.classList.remove('hidden')
   }
 
@@ -1157,16 +1202,18 @@ export class Game {
     this.inSewer = false
     this.sewerCooldown = 1.5
     this.velocity.set(0, 0, 0)
+    this.dungeon.exit()
     this.player.position.copy(this.surfaceReturnPos)
     this.faceYaw = 0
     this.player.rotation.y = this.faceYaw
     this.camFocus.copy(this.player.position)
 
-    if (this.sewerTunnel) this.sewerTunnel.visible = false
     for (const obj of this.surfaceObjects) obj.visible = true
     for (const light of this.surfaceLights) light.visible = true
-    // Player must stay visible
     this.player.visible = true
+    for (const enemy of this.enemies) {
+      if (enemy.state === 'alive') enemy.root.visible = true
+    }
 
     this.scene.background = this.savedBg.clone()
     if (this.scene.fog instanceof THREE.FogExp2) {
@@ -1178,7 +1225,7 @@ export class Game {
     this.exitSewerBtn?.classList.add('hidden')
     this.conceptPanelEl?.classList.remove('hidden')
     this.hintEl.innerHTML =
-      '<b>WASD</b> lopen · <b>Shift</b> sprint · <b>Muis</b> mikken · <b>LMB</b> schieten'
+      '<b>WASD</b> lopen · <b>Shift</b> sprint · <b>Muis</b> mikken · <b>LMB</b> schieten · hatch = dungeon'
   }
 
   private updateCamera(dt: number) {
@@ -1215,7 +1262,32 @@ export class Game {
 
   private updateShooting(dt: number) {
     this.fireCooldown -= dt
-    if (this.firing && this.fireCooldown <= 0 && this.canShootAtAim()) {
+    if (this.inSewer) {
+      if (this.firing && this.fireCooldown <= 0) {
+        const muzzlePos = this.getMuzzleWorldPosition()
+        const result = this.dungeon.tryFire(muzzlePos, this.aimPoint, this.faceYaw)
+        if (result.fired) {
+          this.fireCooldown = this.dungeon.weaponStats().fireInterval
+          this.gunKick = Math.min(this.gunKick + 0.55, 1)
+          this.muzzleLight.intensity = 22
+          for (let i = 0; i < result.endPoints.length; i++) {
+            this.spawnTracer(result.muzzle, result.endPoints[i]!)
+            const hit = result.results[i]
+            if (hit) {
+              this.spawnSparks(hit.hitPoint, 0xff5577)
+              this.dungeon.showHitNumber(
+                hit.hitPoint,
+                this.camera,
+                this.renderer.domElement,
+                hit.damage,
+                hit.isCrit,
+              )
+              this.flashHitmarker()
+            }
+          }
+        }
+      }
+    } else if (this.firing && this.fireCooldown <= 0 && this.canShootAtAim()) {
       this.fireCooldown = FIRE_INTERVAL
       this.shoot()
     }
@@ -1503,9 +1575,18 @@ export class Game {
     const elapsed = this.clock.elapsedTime
     this.updatePlayer(dt)
     this.updateCamera(dt)
+    if (this.inSewer && this.dungeon.isActive) {
+      this.dungeon.update(
+        dt,
+        this.player.position,
+        this.aimPoint,
+        this.camera,
+        this.renderer.domElement,
+      )
+    }
     if (COMBAT_ENABLED) {
       this.updateShooting(dt)
-      this.updateEnemies(dt)
+      if (!this.inSewer) this.updateEnemies(dt)
     }
     this.updateAtmosphere(dt, elapsed)
     this.composer.render()
