@@ -42,6 +42,7 @@ import {
   PLAYER_BOUNDARY_INSET,
   ws,
 } from './worldConfig.js'
+import { loadParkedFerrari } from './ferrariCar.js'
 // ── Tuning ────────────────────────────────────────────────────────────────
 const WALK_SPEED = 5.6
 const SPRINT_SPEED = 9.2
@@ -260,6 +261,7 @@ export class Game {
     this.setupMusic()
     this.setupStartScreen()
     this.buildWorld()
+    void this.loadCityVehicles()
     this.buildIsoPlayer()
     if (COMBAT_ENABLED) this.buildEnemies()
     this.bindEvents()
@@ -426,6 +428,15 @@ export class Game {
     tryAddItem(this.dungeon.playerProgress, createItemInstance('med-gel-injector', 5))
     tryAddItem(this.dungeon.playerProgress, createItemInstance('ablative-patch', 2))
     tryAddItem(this.dungeon.playerProgress, createItemInstance('redline-ampoule', 1))
+  }
+
+  /** Async GLB props for the surface city (hidden when diving the sewer). */
+  private async loadCityVehicles() {
+    const ferrari = await loadParkedFerrari(this.scene, this.worldColliders)
+    if (!ferrari) return
+    applyNearestTextures(ferrari)
+    this.surfaceObjects.push(ferrari)
+    if (this.inSewer) ferrari.visible = false
   }
 
   private addPuddleDecal(x: number, z: number, radius: number, color: number, intensity = 0.12) {
