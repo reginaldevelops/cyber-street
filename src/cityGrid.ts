@@ -54,7 +54,7 @@ function segmentOverlapsPlaza(a: number, b: number, orthoMin: number, orthoMax: 
   return blockOverlapsPlaza(minX, maxX, minZ, maxZ)
 }
 
-/** Major outer avenues — skip ±18 clutter; ±36 used for N–S only (ring owns E–W). */
+/** Major outer avenues — ±36 flanks the plaza; stubs connect into the ring. */
 function majorRoadLines(): number[] {
   return [-72, -54, -36, 36, 54, 72]
 }

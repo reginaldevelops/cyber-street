@@ -6,7 +6,6 @@ import { buildConstructionSite } from './constructionSite.js'
 import { buildPlazaDiner } from './plazaDiner.js'
 import { buildPlazaFountain } from './plazaFountain.js'
 import { buildPlazaSubway } from './plazaSubway.js'
-import { buildSewerEntrance } from './sewer.js'
 import {
   PERIM_INNER,
   PERIM_OUTER,
@@ -255,7 +254,8 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
   const depthCenter = (PERIM_INNER + PERIM_OUTER) / 2
   const depthSpan = PERIM_OUTER - PERIM_INNER
 
-  const sides: Side[] = ['north', 'south', 'east', 'west']
+  // Skip south (metro avenue) and west (construction site) — keep N/E belt tight to the plaza.
+  const sides: Side[] = ['north', 'east']
   const gapForShops = ws(8.5) // leave room for existing shop/corner volumes at ±18.5
 
   for (const side of sides) {
@@ -717,10 +717,14 @@ function buildStreetRing(ctx: CitySurroundContext): THREE.Group {
 export function buildCitySurround(ctx: CitySurroundContext): CitySurroundStats {
   buildPlazaStreet({ scene: ctx.scene, flickerMats: ctx.flickerMats })
   buildPlazaDiner({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
-  buildSewerEntrance({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
+  // Sewer hatch is owned by Game (needs the entrance ref for proximity enter).
   buildPlazaFountain({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
   buildPlazaSubway({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
   buildConstructionSite({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
+  // Near-plaza belt + skyline so Cyber Street reads as a city from the hub.
+  buildPerimeterCity(ctx)
+  buildSkylineBackdrop(ctx)
+  buildStreetExtensions(ctx)
   buildCityGrid({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
 
   let meshCount = 0

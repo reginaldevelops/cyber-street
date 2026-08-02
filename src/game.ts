@@ -402,12 +402,12 @@ export class Game {
     applyNearestTextures(this.scene)
 
     // Surface sewer hatch (dungeon generates underground on enter)
+    // buildSewerEntrance already adds itself to the scene
     this.sewerEntrance = buildSewerEntrance({
       scene: this.scene,
       flickerMats: this.flickerMats,
       colliders: this.worldColliders,
     })
-    this.scene.add(this.sewerEntrance)
 
     // Snapshot surface objects/lights so we can hide them in the dungeon
     for (const child of [...this.scene.children]) {
