@@ -254,44 +254,49 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
   const depthCenter = (PERIM_INNER + PERIM_OUTER) / 2
   const depthSpan = PERIM_OUTER - PERIM_INNER
 
-  // Skip south (metro avenue) and west (construction site) — keep N/E belt tight to the plaza.
-  const sides: Side[] = ['north', 'east']
-  const gapForShops = ws(8.5) // leave room for existing shop/corner volumes at ±18.5
+  // N/E dense belt; light S/W wings that leave metro + construction open.
+  const sides: Side[] = ['north', 'east', 'south', 'west']
+  const gapForShops = ws(8.5)
 
   for (const side of sides) {
     const spans: [number, number][] = []
     const axisMin = -PLAZA_HALF + ws(4)
     const axisMax = PLAZA_HALF - ws(4)
 
-    // Split around corner blocks & shop bays
-    if (side === 'north' || side === 'south') {
-      spans.push([axisMin, -gapForShops], [-gapForShops + 1, gapForShops - 1], [gapForShops, axisMax])
+    if (side === 'north') {
+      spans.push([axisMin, -gapForShops], [gapForShops, axisMax])
+    } else if (side === 'south') {
+      // Metro canopy owns the center — only corner wings
+      spans.push([axisMin, -ws(16)], [ws(16), axisMax])
+    } else if (side === 'east') {
+      spans.push([axisMin, -ws(10)], [-ws(6), ws(6)], [ws(10), axisMax])
     } else {
-      spans.push([axisMin, -ws(12)], [-ws(8), ws(8)], [ws(12), axisMax])
+      // Construction site on west — only north/south stubs
+      spans.push([axisMin, -ws(18)], [ws(18), axisMax])
     }
 
     let segIdx = 0
     for (const [a0, a1] of spans) {
       const len = a1 - a0
       if (len < 3) continue
-      const segW = len / Math.ceil(len / 5.5)
+      const segW = len / Math.ceil(len / 5.2)
       for (let u = a0 + segW / 2; u < a1; u += segW) {
         const w = Math.min(segW * 0.92, a1 - a0)
-        const isFullBlock = seededRand(segIdx + 99) > 0.72
+        const isFullBlock = seededRand(segIdx + 99) > 0.55
         const { x, z, rotY } = sideTransform(side, u, depthCenter)
 
         const block = new THREE.Group()
         block.position.set(x, 0, z)
         block.rotation.y = rotY
 
-        const floors = 5 + Math.floor(seededRand(segIdx + 7) * 2)
-        const towerW = Math.max(3.6, Math.min(w, 5.8))
+        const floors = 7 + Math.floor(seededRand(segIdx + 7) * 5)
+        const towerW = Math.max(3.8, Math.min(w, 6.2))
         const windowMats: THREE.MeshStandardMaterial[] = []
         const tower = buildModernTower({
           width: towerW,
-          depth: depthSpan * 0.9,
+          depth: depthSpan * 0.95,
           floors,
-          balconies: seededRand(segIdx + 3) > 0.2,
+          balconies: seededRand(segIdx + 3) > 0.25,
           balconySide: segIdx % 2 === 0 ? 1 : -1,
           seed: segIdx * 41 + side.charCodeAt(0),
           collider: isFullBlock,
@@ -299,11 +304,32 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
         })
         block.add(tower)
         for (const wm of windowMats) {
+          wm.emissiveIntensity = Math.max(wm.emissiveIntensity, 0.55)
           ctx.flickerMats.push({ mat: wm, base: wm.emissiveIntensity, t: Math.random() * 4 })
         }
         if (isFullBlock) {
           for (const cm of towerColliderMeshes(tower)) ctx.colliders?.push(cm)
         }
+
+        // Neon belt so the ring reads as Cyber Street from the hub
+        const neonColor = [NEON_CYAN, NEON_PINK, NEON_YELLOW, NEON_ORANGE][segIdx % 4]
+        const neon = new THREE.Mesh(
+          new THREE.BoxGeometry(towerW * 0.92, 0.22, 0.12),
+          new THREE.MeshStandardMaterial({
+            color: neonColor,
+            emissive: neonColor,
+            emissiveIntensity: 0.95,
+            roughness: 0.35,
+            metalness: 0.4,
+          }),
+        )
+        neon.position.set(0, 3.1 + (segIdx % 3) * 1.4, depthSpan * 0.48)
+        block.add(neon)
+        ctx.flickerMats.push({
+          mat: neon.material as THREE.MeshStandardMaterial,
+          base: 0.95,
+          t: Math.random() * 3,
+        })
 
         root.add(block)
         segIdx++
@@ -321,12 +347,13 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
 export function buildSkylineBackdrop(ctx: CitySurroundContext): THREE.Group {
   const root = new THREE.Group()
   root.name = 'skyline-backdrop'
-  const silMat = new THREE.MeshBasicMaterial({ color: SKYLINE_SIL })
+  // Darker than day fog so silhouettes read against the sky
+  const silMat = new THREE.MeshBasicMaterial({ color: 0x2a3344 })
 
   const layers = [
-    { zOff: SKYLINE_NEAR, count: 7, hMin: 14, hMax: 28, wMin: 3, wMax: 7 },
-    { zOff: SKYLINE_NEAR + ws(10), count: 9, hMin: 20, hMax: 42, wMin: 2.5, wMax: 6 },
-    { zOff: SKYLINE_FAR, count: 11, hMin: 28, hMax: 58, wMin: 2, wMax: 5 },
+    { zOff: SKYLINE_NEAR - 4, count: 9, hMin: 18, hMax: 34, wMin: 3.2, wMax: 7.5 },
+    { zOff: SKYLINE_NEAR + ws(8), count: 11, hMin: 26, hMax: 48, wMin: 2.8, wMax: 6.5 },
+    { zOff: SKYLINE_FAR - 6, count: 13, hMin: 34, hMax: 64, wMin: 2.2, wMax: 5.5 },
   ]
 
   const windowGeo = new THREE.PlaneGeometry(0.45, 0.65)

@@ -388,11 +388,14 @@ export class Game {
     this.buildPlazaFloor(this.groundConcept)
     this.buildCentralHub()
 
-    buildCitySurround({
+    const surroundStats = buildCitySurround({
       scene: this.scene,
       flickerMats: this.flickerMats,
       colliders: this.worldColliders,
     })
+    console.info(
+      `[city] surround meshes=${surroundStats.meshCount} instanced=${surroundStats.instancedMeshCount} instances=${surroundStats.instanceCount}`,
+    )
 
     // No rain during clear daytime
     this.rain = this.makeRain()

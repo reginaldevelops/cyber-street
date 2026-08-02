@@ -24,8 +24,8 @@ export const SEWER_SPAWN = new THREE.Vector3(
   SEWER_ORIGIN_Z,
 )
 
-/** Walk-into radius on the surface hatch. */
-export const SEWER_ENTER_RADIUS = 1.65
+/** Walk-into radius on the surface hatch (forgiving — curb ring is ~1.5m). */
+export const SEWER_ENTER_RADIUS = 2.4
 
 export interface SewerContext {
   scene: THREE.Scene

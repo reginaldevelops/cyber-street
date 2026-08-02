@@ -23,6 +23,6 @@ export const TILE_SIZE = 3.2
 /** Identity — kept so plaza modules need no churn. */
 export const ws = (n: number) => n
 
-/** Wider frustum so the SimCity belt + skyline read from the plaza hub. */
-export const ISO_FRUSTUM = 36
-export const ISO_CAM_OFFSET = 18
+/** Pulled back so plaza hub reads with perimeter towers + skyline in-frame. */
+export const ISO_FRUSTUM = 48
+export const ISO_CAM_OFFSET = 22
