@@ -44,6 +44,10 @@ src/plaza*.ts         — diner, fountain, subway, street ring
 src/dungeon/          — sewer dungeon RPG
 ```
 
+## Credits
+
+- Parked Ferrari GLB from [duolahypercho/earth-online](https://github.com/duolahypercho/earth-online/blob/main/public/assets/ferrari.glb)
+
 ## License
 
 MIT
