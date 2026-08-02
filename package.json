@@ -1,6 +1,6 @@
 {
   "name": "cyber-street",
-  "description": "Browser cyberpunk third-person shooter prototype — one neon street, WASD + mouse aim",
+  "description": "Isometric cyberpunk city — plaza hub, SimCity street grid, sewer dungeon",
   "private": false,
   "version": "0.1.0",
   "type": "module",

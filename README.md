@@ -1,6 +1,6 @@
 # Cyber Street
 
-Browser-based cyberpunk third-person shooter prototype. One neon street, WASD movement, mouse aim, hitscan shooting.
+Isometric cyberpunk city you can walk — plaza hub, SimCity-style streets, landmarks, and a sewer dungeon.
 
 ## Run locally
 
@@ -9,41 +9,40 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5180 — click to capture the mouse.
+Open http://localhost:5180 — click **PLAY** to enter the city.
 
 ## Controls
 
 | Input | Action |
 | --- | --- |
-| **W A S D** | Move (relative to aim direction) |
+| **W A S D** | Move |
 | **Shift** | Sprint |
-| **Mouse** | Aim (yaw + pitch, pointer lock) |
-| **Left click** | Shoot (hold for auto fire) |
+| **Mouse** | Aim |
+| **Left click** | Shoot |
+| **R** | Reload (dungeon) |
+| **E** | Loot / sewer exit |
+| **I** / **Tab** | Inventory |
+| **1–3** | Consumables |
+
+## What's in the city
+
+- Plaza hub with Tesla-style diner, fountain, metro pavilion, construction site
+- Surrounding street grid: shops, civic buildings (politie, brandweer, ziekenhuis), markets, fietsenstalling
+- Sewer hatch → seeded random dungeon (rooms, mobs, boss, loot)
 
 ## Stack
 
-- TypeScript
-- Vite
-- Three.js (+ UnrealBloom postprocessing)
+- TypeScript · Vite · Three.js
 
 ## Project layout
 
 ```
-src/game.ts   — scene, player, enemies, input, camera, combat, atmosphere
-src/main.ts   — entry point
+src/game.ts           — scene, player, input, camera, combat
+src/cityGrid.ts       — SimCity-style street grid
+src/cityBuildings.ts  — lot / building kit
+src/plaza*.ts         — diner, fountain, subway, street ring
+src/dungeon/          — sewer dungeon RPG
 ```
-
-## Roadmap
-
-- [x] One street + third-person movement
-- [x] Mouse aim (pointer lock)
-- [x] Smooth movement (acceleration, lean, walk cycle, sprint FOV kick)
-- [x] GTA3-style follow camera with collision + damping
-- [x] Shooting (hitscan with aim assist, tracers, muzzle flash, sparks)
-- [x] NPC enemies (chase, hit flash, death + respawn)
-- [ ] Enemy attacks / player health
-- [ ] Sound design
-- [ ] Multiplayer server
 
 ## License
 
