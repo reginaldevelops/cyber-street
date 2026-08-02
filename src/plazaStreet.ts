@@ -1,57 +1,16 @@
 import * as THREE from 'three'
+import { PLAZA_HALF, PLAZA_SIZE, STREET_INNER, STREET_MID, STREET_OUTER, STREET_W, ws } from './worldConfig.js'
+import { addTiledStreetRing, makeTileAsphaltMat } from './tiledSurfaces.js'
 
-const PLAZA_HALF = 20
-const PLAZA_SIZE = PLAZA_HALF * 2
-const STREET_INNER = PLAZA_HALF + 0.5
-const STREET_OUTER = PLAZA_HALF + 6.5
-const STREET_MID = (STREET_INNER + STREET_OUTER) / 2
-const STREET_W = STREET_OUTER - STREET_INNER
-
-const ASPHALT = 0x1c1c22
 const MARKING_WHITE = 0xf2f2f2
 const CURB = 0x4a4848
 const NEON_CYAN = 0x00f6ff
-const MARK_Y = 0.022
-const STREET_SURFACE_Y = 0.008
+const MARK_Y = 0.065
+const STREET_SURFACE_Y = 0.06
 
 export interface PlazaStreetContext {
   scene: THREE.Scene
   flickerMats: { mat: THREE.MeshStandardMaterial; base: number; t: number }[]
-}
-
-function makeAsphaltTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas')
-  c.width = 512
-  c.height = 512
-  const g = c.getContext('2d')!
-  g.fillStyle = '#1c1c22'
-  g.fillRect(0, 0, 512, 512)
-  for (let i = 0; i < 9000; i++) {
-    const x = Math.random() * 512
-    const y = Math.random() * 512
-    const a = 0.04 + Math.random() * 0.08
-    g.fillStyle = Math.random() > 0.5 ? `rgba(28,28,34,${a})` : `rgba(36,36,44,${a})`
-    g.fillRect(x, y, 1 + Math.random() * 2, 1 + Math.random() * 2)
-  }
-  for (let i = 0; i < 18; i++) {
-    g.strokeStyle = `rgba(12,12,16,${0.15 + Math.random() * 0.2})`
-    g.lineWidth = 0.5 + Math.random()
-    g.beginPath()
-    g.moveTo(Math.random() * 512, Math.random() * 512)
-    g.lineTo(Math.random() * 512, Math.random() * 512)
-    g.stroke()
-  }
-  // Wet streaks
-  for (let i = 0; i < 6; i++) {
-    const wx = Math.random() * 512
-    g.fillStyle = `rgba(40,48,58,${0.08 + Math.random() * 0.06})`
-    g.fillRect(wx, 0, 8 + Math.random() * 20, 512)
-  }
-  const tex = new THREE.CanvasTexture(c)
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping
-  tex.repeat.set(4, 4)
-  tex.colorSpace = THREE.SRGBColorSpace
-  return tex
 }
 
 function markingMat(emissive = 0.05) {
@@ -68,38 +27,11 @@ function markingMat(emissive = 0.05) {
   return mat
 }
 
-/** Square ring mesh — no overlapping corner patches. */
-function buildStreetRingMesh(): THREE.Mesh {
-  const asphaltTex = makeAsphaltTexture()
-  const mat = new THREE.MeshStandardMaterial({
-    map: asphaltTex,
-    color: ASPHALT,
-    roughness: 0.92,
-    metalness: 0.08,
-  })
-
-  const outer = STREET_OUTER
-  const inner = STREET_INNER
-  const shape = new THREE.Shape()
-  shape.moveTo(-outer, -outer)
-  shape.lineTo(outer, -outer)
-  shape.lineTo(outer, outer)
-  shape.lineTo(-outer, outer)
-  shape.closePath()
-
-  const hole = new THREE.Path()
-  hole.moveTo(-inner, -inner)
-  hole.lineTo(inner, -inner)
-  hole.lineTo(inner, inner)
-  hole.lineTo(-inner, inner)
-  hole.closePath()
-  shape.holes.push(hole)
-
-  const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat)
-  mesh.rotation.x = -Math.PI / 2
-  mesh.position.y = 0.008
-  mesh.receiveShadow = true
-  return mesh
+/** Square ring of asphalt tiles around the plaza. */
+function buildStreetRingMesh(root: THREE.Group) {
+  const mat = makeTileAsphaltMat(0x3a3e48)
+  const alt = makeTileAsphaltMat(0x464a54)
+  addTiledStreetRing(root, mat, alt, STREET_INNER, STREET_OUTER, 1.5)
 }
 
 function addDashLine(
@@ -203,9 +135,22 @@ function addStreetLamp(root: THREE.Group, ctx: PlazaStreetContext, x: number, z:
   ctx.flickerMats.push({ mat: lampMat, base: 1.15, t: Math.random() * 3 })
 }
 
+const WHEEL_RADIUS = 0.42
+
+/** Lift group so its lowest mesh point sits on `surfaceY` (after x/z/rotation are set). */
+function snapGroupBaseToY(group: THREE.Object3D, surfaceY: number) {
+  const box = new THREE.Box3().setFromObject(group)
+  group.position.y += surfaceY - box.min.y
+}
+
 function buildSchoolBus(): THREE.Group {
   const bus = new THREE.Group()
   bus.name = 'school-bus'
+
+  const wheelY = WHEEL_RADIUS
+  const floorY = WHEEL_RADIUS * 2 + 0.04
+  const bodyH = 1.45
+  const bodyY = floorY + bodyH / 2
 
   const yellowMat = new THREE.MeshStandardMaterial({ color: 0xf0b000, roughness: 0.45, metalness: 0.32 })
   const blackMat = new THREE.MeshStandardMaterial({ color: 0x121216, roughness: 0.55, metalness: 0.45 })
@@ -220,46 +165,63 @@ function buildSchoolBus(): THREE.Group {
     opacity: 0.82,
   })
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2.35, 1.45, 7.4), yellowMat)
-  body.position.y = 1.12
+  for (const [wx, wz] of [[-0.92, -2.5], [0.92, -2.5], [-0.92, 2.5], [0.92, 2.5]] as [number, number][]) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, 0.32, 14), blackMat)
+    wheel.rotation.z = Math.PI / 2
+    wheel.position.set(wx, wheelY, wz)
+    wheel.castShadow = true
+    bus.add(wheel)
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.34, 8), chromeMat)
+    hub.rotation.z = Math.PI / 2
+    hub.position.set(wx, wheelY, wz)
+    bus.add(hub)
+  }
+
+  const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.36, 7.35), blackMat)
+  chassis.position.y = floorY - 0.18
+  chassis.castShadow = true
+  bus.add(chassis)
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.35, bodyH, 7.4), yellowMat)
+  body.position.y = bodyY
   body.castShadow = true
   bus.add(body)
 
   const roof = new THREE.Mesh(new THREE.BoxGeometry(2.28, 0.18, 7.35), yellowMat)
-  roof.position.y = 1.92
+  roof.position.y = bodyY + bodyH / 2 + 0.09
   bus.add(roof)
 
   const hood = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.62, 1.55), yellowMat)
-  hood.position.set(0, 0.78, -3.95)
+  hood.position.set(0, floorY + 0.31, -3.95)
+  hood.castShadow = true
   bus.add(hood)
 
   const grill = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.45, 0.12), blackMat)
-  grill.position.set(0, 0.72, -4.72)
+  grill.position.set(0, floorY + 0.24, -4.72)
   bus.add(grill)
 
   for (let i = 0; i < 5; i++) {
     const win = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.68), glassMat)
-    win.position.set(-1.18, 1.32, -2.4 + i * 1.35)
+    win.position.set(-1.18, floorY + 0.55, -2.4 + i * 1.35)
     win.rotation.y = Math.PI / 2
     bus.add(win)
   }
 
   const windshield = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.82), glassMat)
-  windshield.position.set(0, 1.22, -4.65)
+  windshield.position.set(0, floorY + 0.47, -4.65)
   bus.add(windshield)
 
   const door = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.15, 0.85), blackMat)
-  door.position.set(-1.2, 0.95, 1.8)
+  door.position.set(-1.2, floorY + 0.57, 1.8)
   bus.add(door)
 
   const stopSign = new THREE.Mesh(
     new THREE.BoxGeometry(0.06, 0.52, 0.28),
     new THREE.MeshStandardMaterial({ color: 0xcc1111, emissive: 0xff2233, emissiveIntensity: 0.55 }),
   )
-  stopSign.position.set(-1.22, 1.08, -1.2)
+  stopSign.position.set(-1.22, floorY + 0.52, -1.2)
   bus.add(stopSign)
 
-  // "SCHOOL BUS" label
   const labelCanvas = document.createElement('canvas')
   labelCanvas.width = 256
   labelCanvas.height = 64
@@ -273,25 +235,15 @@ function buildSchoolBus(): THREE.Group {
   const labelTex = new THREE.CanvasTexture(labelCanvas)
   const labelMat = new THREE.MeshStandardMaterial({ map: labelTex, roughness: 0.6, metalness: 0.1 })
   const label = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.42), labelMat)
-  label.position.set(0, 1.05, 3.72)
+  label.position.set(0, floorY + 0.42, 3.72)
   bus.add(label)
 
-  for (const [wx, wz] of [[-0.92, -2.5], [0.92, -2.5], [-0.92, 2.5], [0.92, 2.5]] as [number, number][]) {
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.32, 14), blackMat)
-    wheel.rotation.z = Math.PI / 2
-    wheel.position.set(wx, 0.42, wz)
-    bus.add(wheel)
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.34, 8), chromeMat)
-    hub.rotation.z = Math.PI / 2
-    hub.position.set(wx, 0.42, wz)
-    bus.add(hub)
-  }
-
+  const bumperY = wheelY + 0.06
   const bumperF = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.2, 0.22), blackMat)
-  bumperF.position.set(0, 0.48, -4.78)
+  bumperF.position.set(0, bumperY, -4.78)
   bus.add(bumperF)
   const bumperR = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.2, 0.22), blackMat)
-  bumperR.position.set(0, 0.48, 4.78)
+  bumperR.position.set(0, bumperY, 4.78)
   bus.add(bumperR)
 
   return bus
@@ -299,7 +251,7 @@ function buildSchoolBus(): THREE.Group {
 
 /** Lane markings on straight segments only — avoids corner clutter. */
 function addStraightMarkings(root: THREE.Group) {
-  const straightLen = PLAZA_SIZE - 1.2
+  const straightLen = PLAZA_SIZE - ws(1.2)
   const innerLine = STREET_INNER + 0.28
   const outerLine = STREET_OUTER - 0.28
 
@@ -329,45 +281,70 @@ export function buildPlazaStreet(ctx: PlazaStreetContext): THREE.Group {
   const root = new THREE.Group()
   root.name = 'plaza-street'
 
-  root.add(buildStreetRingMesh())
+  buildStreetRingMesh(root)
   addCurbs(root)
   addStraightMarkings(root)
 
   const crossSpan = STREET_W - 0.6
-  const crossDepth = 3.6
+  const crossDepth = ws(3.6)
 
-  // West (linker): 2 zebrapaden op noord- en zuidarm
-  addZebraCrossing(root, -STREET_MID, -14, crossSpan, crossDepth, Math.PI / 2)
-  addStopBar(root, -STREET_MID, -16.2, crossSpan, true)
-  addZebraCrossing(root, -STREET_MID, 14, crossSpan, crossDepth, Math.PI / 2)
-  addStopBar(root, -STREET_MID, 16.2, crossSpan, true)
+  // West / east arms: zebras near mid-sides
+  const zebraAlong = PLAZA_HALF - 10
+  addZebraCrossing(root, -STREET_MID, -zebraAlong, crossSpan, crossDepth, Math.PI / 2)
+  addStopBar(root, -STREET_MID, -(zebraAlong + 2.2), crossSpan, true)
+  addZebraCrossing(root, -STREET_MID, zebraAlong, crossSpan, crossDepth, Math.PI / 2)
+  addStopBar(root, -STREET_MID, zebraAlong + 2.2, crossSpan, true)
 
-  // East (rechter): 2 zebrapaden
-  addZebraCrossing(root, STREET_MID, -14, crossSpan, crossDepth, Math.PI / 2)
-  addStopBar(root, STREET_MID, -16.2, crossSpan, true)
-  addZebraCrossing(root, STREET_MID, 14, crossSpan, crossDepth, Math.PI / 2)
-  addStopBar(root, STREET_MID, 16.2, crossSpan, true)
+  addZebraCrossing(root, STREET_MID, -zebraAlong, crossSpan, crossDepth, Math.PI / 2)
+  addStopBar(root, STREET_MID, -(zebraAlong + 2.2), crossSpan, true)
+  addZebraCrossing(root, STREET_MID, zebraAlong, crossSpan, crossDepth, Math.PI / 2)
+  addStopBar(root, STREET_MID, zebraAlong + 2.2, crossSpan, true)
 
-  // Lamps on outer sidewalk — skip corner zones
-  const lampSpacing = 9
-  const lampInset = STREET_OUTER - 0.55
-  for (let t = -PLAZA_HALF + 6; t <= PLAZA_HALF - 6; t += lampSpacing) {
+  // North / south arms (incl. metro south)
+  addZebraCrossing(root, -zebraAlong, -STREET_MID, crossSpan, crossDepth, 0)
+  addStopBar(root, -(zebraAlong + 2.2), -STREET_MID, crossSpan, false)
+  addZebraCrossing(root, zebraAlong, -STREET_MID, crossSpan, crossDepth, 0)
+  addStopBar(root, zebraAlong + 2.2, -STREET_MID, crossSpan, false)
+
+  addZebraCrossing(root, -zebraAlong, STREET_MID, crossSpan, crossDepth, 0)
+  addStopBar(root, -(zebraAlong + 2.2), STREET_MID, crossSpan, false)
+  addZebraCrossing(root, zebraAlong, STREET_MID, crossSpan, crossDepth, 0)
+  addStopBar(root, zebraAlong + 2.2, STREET_MID, crossSpan, false)
+
+  // Outer sidewalk strip just outside the ring
+  const outerWalk = STREET_OUTER + 0.85
+  const walkMat = new THREE.MeshStandardMaterial({ color: 0x5a5e68, roughness: 0.9, metalness: 0.08 })
+  for (const sign of [-1, 1] as const) {
+    const n = new THREE.Mesh(new THREE.BoxGeometry(PLAZA_SIZE + 3.4, 0.08, 1.5), walkMat)
+    n.position.set(0, 0.04, sign * outerWalk)
+    n.receiveShadow = true
+    root.add(n)
+    const e = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, PLAZA_SIZE + 3.4), walkMat)
+    e.position.set(sign * outerWalk, 0.04, 0)
+    e.receiveShadow = true
+    root.add(e)
+    addCurbSegment(root, 0, sign * (STREET_OUTER + 0.11), PLAZA_SIZE, true)
+    addCurbSegment(root, sign * (STREET_OUTER + 0.11), 0, PLAZA_SIZE, false)
+  }
+  // Lamps on outer sidewalk — arms face inward over the roadway
+  const lampSpacing = ws(9)
+  const lampInset = STREET_OUTER + ws(0.7)
+  for (let t = -PLAZA_HALF + ws(6); t <= PLAZA_HALF - ws(6); t += lampSpacing) {
     addStreetLamp(root, ctx, t, -lampInset, Math.PI / 2)
     addStreetLamp(root, ctx, t, lampInset, -Math.PI / 2)
     addStreetLamp(root, ctx, -lampInset, t, 0)
     addStreetLamp(root, ctx, lampInset, t, Math.PI)
   }
 
-  // School bus — parallel geparkeerd op oostelijke rijbaan, wielen op asfalt
+  // School bus — east lane, aligned with road; snap wheel base to asphalt surface
   const bus = buildSchoolBus()
-  const parkX = STREET_MID + STREET_W * 0.28
-  const parkZ = 2.5
-  bus.position.set(parkX, STREET_SURFACE_Y, parkZ)
-  bus.rotation.y = Math.PI
+  const parkX = STREET_MID + STREET_W * 0.22
+  const parkZ = -8
+  bus.position.set(parkX, 0, parkZ)
+  bus.rotation.y = 0
   root.add(bus)
+  snapGroupBaseToY(bus, STREET_SURFACE_Y)
 
   ctx.scene.add(root)
   return root
 }
-
-export { PLAZA_HALF, STREET_INNER, STREET_OUTER, STREET_MID }

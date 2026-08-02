@@ -1,20 +1,33 @@
 import * as THREE from 'three'
 import { buildModernTower, towerColliderMeshes } from './modernBuilding.js'
 import { buildPlazaStreet } from './plazaStreet.js'
+import { buildCityGrid } from './cityGrid.js'
+import { buildConstructionSite } from './constructionSite.js'
+import { buildPlazaDiner } from './plazaDiner.js'
+import { buildPlazaFountain } from './plazaFountain.js'
+import { buildPlazaSubway } from './plazaSubway.js'
+import {
+  PERIM_INNER,
+  PERIM_OUTER,
+  PLAZA_HALF,
+  PLAZA_SIZE,
+  SHOP_INSET,
+  SKYLINE_FAR,
+  SKYLINE_NEAR,
+  STREET_INNER,
+  STREET_OUTER,
+  ws,
+} from './worldConfig.js'
 
-// ── Palette (purple-grey cyber-industrial) ────────────────────────────────
-export const PLAZA_HALF = 20
-const PLAZA_SIZE = PLAZA_HALF * 2
-
-const WALL_DARK = 0x1a1624
-const WALL_MID = 0x2a2436
-const WALL_TRIM = 0x3a3448
-const SKYLINE_SIL = 0x120e1a
-const STREET_DARK = 0x121018
-const STREET_WET = 0x0e0c14
-const METAL = 0x4a5058
-const PIPE = 0x3a3844
-const GRATE = 0x2a2830
+const WALL_DARK = 0x2a2834
+const WALL_MID = 0x3e3a4a
+const WALL_TRIM = 0x524e5e
+const SKYLINE_SIL = 0x5a6a7e
+const STREET_DARK = 0x343840
+const STREET_WET = 0x3a3e48
+const METAL = 0x6a7078
+const PIPE = 0x5a5864
+const GRATE = 0x4a4850
 
 const NEON_CYAN = 0x00f6ff
 const NEON_PINK = 0xff2d95
@@ -27,14 +40,6 @@ const BRICK_RED = 0x4a2828
 const BRICK_TAN = 0x3a3428
 const BRICK_GREY = 0x323038
 const BRICK_ACCENT = [BRICK_RED, BRICK_TAN, BRICK_GREY, WALL_MID] as const
-
-const SHOP_INSET = PLAZA_HALF - 1.5 // 18.5 — matches game.ts courtyard shops
-const STREET_INNER = PLAZA_HALF + 0.5 // 20.5 — just outside plaza trim
-const STREET_OUTER = PLAZA_HALF + 6.5 // 26.5 — outer curb
-const PERIM_INNER = PLAZA_HALF + 7 // 27 — back of street
-const PERIM_OUTER = PLAZA_HALF + 13 // 33 — facade outer face
-const SKYLINE_NEAR = PLAZA_HALF + 16 // 36
-const SKYLINE_FAR = PLAZA_HALF + 38 // 58
 
 export interface CitySurroundContext {
   scene: THREE.Scene
@@ -249,43 +254,49 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
   const depthCenter = (PERIM_INNER + PERIM_OUTER) / 2
   const depthSpan = PERIM_OUTER - PERIM_INNER
 
-  const sides: Side[] = ['north', 'south', 'east', 'west']
-  const gapForShops = 8.5 // leave room for existing shop/corner volumes at ±18.5
+  // N/E dense belt; light S/W wings that leave metro + construction open.
+  const sides: Side[] = ['north', 'east', 'south', 'west']
+  const gapForShops = ws(8.5)
 
   for (const side of sides) {
     const spans: [number, number][] = []
-    const axisMin = -PLAZA_HALF + 4
-    const axisMax = PLAZA_HALF - 4
+    const axisMin = -PLAZA_HALF + ws(4)
+    const axisMax = PLAZA_HALF - ws(4)
 
-    // Split around corner blocks & shop bays
-    if (side === 'north' || side === 'south') {
-      spans.push([axisMin, -gapForShops], [-gapForShops + 1, gapForShops - 1], [gapForShops, axisMax])
+    if (side === 'north') {
+      spans.push([axisMin, -gapForShops], [gapForShops, axisMax])
+    } else if (side === 'south') {
+      // Metro canopy owns the center — only corner wings
+      spans.push([axisMin, -ws(16)], [ws(16), axisMax])
+    } else if (side === 'east') {
+      spans.push([axisMin, -ws(10)], [-ws(6), ws(6)], [ws(10), axisMax])
     } else {
-      spans.push([axisMin, -12], [-8, 8], [12, axisMax])
+      // Construction site on west — only north/south stubs
+      spans.push([axisMin, -ws(18)], [ws(18), axisMax])
     }
 
     let segIdx = 0
     for (const [a0, a1] of spans) {
       const len = a1 - a0
       if (len < 3) continue
-      const segW = len / Math.ceil(len / 5.5)
+      const segW = len / Math.ceil(len / 5.2)
       for (let u = a0 + segW / 2; u < a1; u += segW) {
         const w = Math.min(segW * 0.92, a1 - a0)
-        const isFullBlock = seededRand(segIdx + 99) > 0.72
+        const isFullBlock = seededRand(segIdx + 99) > 0.55
         const { x, z, rotY } = sideTransform(side, u, depthCenter)
 
         const block = new THREE.Group()
         block.position.set(x, 0, z)
         block.rotation.y = rotY
 
-        const floors = 5 + Math.floor(seededRand(segIdx + 7) * 2)
-        const towerW = Math.max(3.6, Math.min(w, 5.8))
+        const floors = 7 + Math.floor(seededRand(segIdx + 7) * 5)
+        const towerW = Math.max(3.8, Math.min(w, 6.2))
         const windowMats: THREE.MeshStandardMaterial[] = []
         const tower = buildModernTower({
           width: towerW,
-          depth: depthSpan * 0.9,
+          depth: depthSpan * 0.95,
           floors,
-          balconies: seededRand(segIdx + 3) > 0.2,
+          balconies: seededRand(segIdx + 3) > 0.25,
           balconySide: segIdx % 2 === 0 ? 1 : -1,
           seed: segIdx * 41 + side.charCodeAt(0),
           collider: isFullBlock,
@@ -293,11 +304,32 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
         })
         block.add(tower)
         for (const wm of windowMats) {
+          wm.emissiveIntensity = Math.max(wm.emissiveIntensity, 0.55)
           ctx.flickerMats.push({ mat: wm, base: wm.emissiveIntensity, t: Math.random() * 4 })
         }
         if (isFullBlock) {
           for (const cm of towerColliderMeshes(tower)) ctx.colliders?.push(cm)
         }
+
+        // Neon belt so the ring reads as Cyber Street from the hub
+        const neonColor = [NEON_CYAN, NEON_PINK, NEON_YELLOW, NEON_ORANGE][segIdx % 4]
+        const neon = new THREE.Mesh(
+          new THREE.BoxGeometry(towerW * 0.92, 0.22, 0.12),
+          new THREE.MeshStandardMaterial({
+            color: neonColor,
+            emissive: neonColor,
+            emissiveIntensity: 0.95,
+            roughness: 0.35,
+            metalness: 0.4,
+          }),
+        )
+        neon.position.set(0, 3.1 + (segIdx % 3) * 1.4, depthSpan * 0.48)
+        block.add(neon)
+        ctx.flickerMats.push({
+          mat: neon.material as THREE.MeshStandardMaterial,
+          base: 0.95,
+          t: Math.random() * 3,
+        })
 
         root.add(block)
         segIdx++
@@ -315,26 +347,27 @@ export function buildPerimeterCity(ctx: CitySurroundContext): THREE.Group {
 export function buildSkylineBackdrop(ctx: CitySurroundContext): THREE.Group {
   const root = new THREE.Group()
   root.name = 'skyline-backdrop'
-  const silMat = new THREE.MeshBasicMaterial({ color: SKYLINE_SIL })
+  // Darker than day fog so silhouettes read against the sky
+  const silMat = new THREE.MeshBasicMaterial({ color: 0x2a3344 })
 
   const layers = [
-    { zOff: SKYLINE_NEAR, count: 7, hMin: 14, hMax: 28, wMin: 3, wMax: 7 },
-    { zOff: SKYLINE_NEAR + 10, count: 9, hMin: 20, hMax: 42, wMin: 2.5, wMax: 6 },
-    { zOff: SKYLINE_FAR, count: 11, hMin: 28, hMax: 58, wMin: 2, wMax: 5 },
+    { zOff: SKYLINE_NEAR - 4, count: 9, hMin: 18, hMax: 34, wMin: 3.2, wMax: 7.5 },
+    { zOff: SKYLINE_NEAR + ws(8), count: 11, hMin: 26, hMax: 48, wMin: 2.8, wMax: 6.5 },
+    { zOff: SKYLINE_FAR - 6, count: 13, hMin: 34, hMax: 64, wMin: 2.2, wMax: 5.5 },
   ]
 
   const windowGeo = new THREE.PlaneGeometry(0.45, 0.65)
   const windowMats = [
-    new THREE.MeshStandardMaterial({ color: WINDOW_WARM, emissive: WINDOW_WARM, emissiveIntensity: 0.5 }),
-    new THREE.MeshStandardMaterial({ color: WINDOW_COOL, emissive: WINDOW_COOL, emissiveIntensity: 0.45 }),
-    new THREE.MeshStandardMaterial({ color: WINDOW_PINK, emissive: WINDOW_PINK, emissiveIntensity: 0.4 }),
+    new THREE.MeshStandardMaterial({ color: WINDOW_WARM, emissive: WINDOW_WARM, emissiveIntensity: 0.18 }),
+    new THREE.MeshStandardMaterial({ color: WINDOW_COOL, emissive: WINDOW_COOL, emissiveIntensity: 0.14 }),
+    new THREE.MeshStandardMaterial({ color: WINDOW_PINK, emissive: WINDOW_PINK, emissiveIntensity: 0.12 }),
   ]
 
   for (const layer of layers) {
     for (let ring = 0; ring < 4; ring++) {
       const side = ring as 0 | 1 | 2 | 3
-      const alongMin = -PLAZA_HALF - 8
-      const alongMax = PLAZA_HALF + 8
+      const alongMin = -PLAZA_HALF - ws(8)
+      const alongMax = PLAZA_HALF + ws(8)
       const step = (alongMax - alongMin) / layer.count
 
       for (let i = 0; i < layer.count; i++) {
@@ -584,7 +617,7 @@ export function buildStreetExtensions(ctx: CitySurroundContext): THREE.Group {
   const dummy = new THREE.Object3D()
   for (let i = 0; i < grateCount; i++) {
     const side = i % 4
-    const t = -PLAZA_HALF + 4 + (i / 4) * 7
+    const t = -PLAZA_HALF + ws(4) + (i / 4) * ws(7)
     const mid = (STREET_INNER + STREET_OUTER) / 2
     if (side === 0) dummy.position.set(t, 0.03, -mid)
     else if (side === 1) dummy.position.set(t, 0.03, mid)
@@ -605,7 +638,7 @@ export function buildStreetExtensions(ctx: CitySurroundContext): THREE.Group {
     blending: THREE.AdditiveBlending,
   })
   const steamSpots: [number, number][] = [
-    [-16, -23], [8, -23], [18, 23], [-10, 23], [-23, 6], [23, -8],
+    [-ws(16), -ws(23)], [ws(8), -ws(23)], [ws(18), ws(23)], [-ws(10), ws(23)], [-ws(23), ws(6)], [ws(23), -ws(8)],
   ]
   for (const [sx, sz] of steamSpots) {
     const puff = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 2.4), steamMat)
@@ -628,8 +661,8 @@ export function buildElevatedWalkways(ctx: CitySurroundContext): THREE.Group {
   const walkY = 5.6
   const walkW = 1.35
   const walkDepth = 1.1
-  const zNorth = -SHOP_INSET - 3.2
-  const zSouth = SHOP_INSET + 3.2
+  const zNorth = -SHOP_INSET - ws(3.2)
+  const zSouth = SHOP_INSET + ws(3.2)
 
   const bridges: [number, number, number, number][] = [
     [-14, zNorth, 10, 0],
@@ -710,6 +743,16 @@ function buildStreetRing(ctx: CitySurroundContext): THREE.Group {
 /** Master builder — all surround systems + stats for budget tracking. */
 export function buildCitySurround(ctx: CitySurroundContext): CitySurroundStats {
   buildPlazaStreet({ scene: ctx.scene, flickerMats: ctx.flickerMats })
+  buildPlazaDiner({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
+  // Sewer hatch is owned by Game (needs the entrance ref for proximity enter).
+  buildPlazaFountain({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
+  buildPlazaSubway({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
+  buildConstructionSite({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
+  // Near-plaza belt + skyline so Cyber Street reads as a city from the hub.
+  buildPerimeterCity(ctx)
+  buildSkylineBackdrop(ctx)
+  buildStreetExtensions(ctx)
+  buildCityGrid({ scene: ctx.scene, flickerMats: ctx.flickerMats, colliders: ctx.colliders })
 
   let meshCount = 0
   let instancedMeshCount = 0
